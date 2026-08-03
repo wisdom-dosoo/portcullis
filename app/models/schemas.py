@@ -6,9 +6,15 @@ import re
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.orm import PermissionEffect, ServerAuthMode, ServerStatus, ServerTransport
+from app.models.orm import (
+    PermissionEffect,
+    RateLimitAlgorithm,
+    ServerAuthMode,
+    ServerStatus,
+    ServerTransport,
+)
 
 _SLUG_ALLOWED = re.compile(r"^[a-z0-9-]+$")
 
@@ -177,5 +183,45 @@ class ServerView(BaseModel):
     health_check_path: str
     consecutive_health_failures: int
     last_health_check_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RateLimitPolicyCreate(BaseModel):
+    """Schema for creating a new rate-limit policy."""
+
+    subject_id: UUID | None = None
+    server_pattern: str | None = None
+    tool_pattern: str | None = None
+    algorithm: RateLimitAlgorithm
+    request_limit: int = Field(gt=0)
+    window_seconds: int = Field(gt=0)
+    burst_capacity: int | None = Field(default=None, gt=0)
+    priority: int = 0
+
+
+class RateLimitPolicyUpdate(BaseModel):
+    """Schema for updating an existing rate-limit policy (all fields optional)."""
+
+    request_limit: int | None = Field(default=None, gt=0)
+    window_seconds: int | None = Field(default=None, gt=0)
+    burst_capacity: int | None = Field(default=None, gt=0)
+    priority: int | None = None
+
+
+class RateLimitPolicyView(BaseModel):
+    """Safe response schema for a rate-limit policy."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    subject_id: UUID | None
+    server_pattern: str | None
+    tool_pattern: str | None
+    algorithm: RateLimitAlgorithm
+    request_limit: int
+    window_seconds: int
+    burst_capacity: int | None
+    priority: int
     created_at: datetime
     updated_at: datetime

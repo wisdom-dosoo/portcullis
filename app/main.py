@@ -92,6 +92,10 @@ def create_app() -> FastAPI:
 
     application.include_router(roles_router)
 
+    from app.api.rate_limits import router as rate_limits_router
+
+    application.include_router(rate_limits_router)
+
     return application
 
 
