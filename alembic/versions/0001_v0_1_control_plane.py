@@ -268,8 +268,12 @@ def upgrade() -> None:
             name="fk_rate_limit_policies_subject_id_api_keys",
             ondelete="CASCADE",
         ),
-        sa.CheckConstraint("request_limit > 0", name="ck_rate_limit_policies_positive_request_limit"),
-        sa.CheckConstraint("window_seconds > 0", name="ck_rate_limit_policies_positive_window_seconds"),
+        sa.CheckConstraint(
+            "request_limit > 0", name="ck_rate_limit_policies_positive_request_limit"
+        ),
+        sa.CheckConstraint(
+            "window_seconds > 0", name="ck_rate_limit_policies_positive_window_seconds"
+        ),
         sa.CheckConstraint(
             "burst_capacity IS NULL OR burst_capacity > 0",
             name="ck_rate_limit_policies_positive_burst_capacity",

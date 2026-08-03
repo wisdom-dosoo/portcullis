@@ -78,9 +78,7 @@ def parse_request(body: bytes) -> JsonRpcRequest:
         raise ValueError(f"code={INVALID_REQUEST} Invalid or missing 'method' field")
 
     if method not in SUPPORTED_METHODS:
-        raise ValueError(
-            f"code={METHOD_NOT_FOUND} Method '{method}' is not supported"
-        )
+        raise ValueError(f"code={METHOD_NOT_FOUND} Method '{method}' is not supported")
 
     rpc_id: int | str | None = data.get("id", None)
     if rpc_id is not None and not isinstance(rpc_id, (int, str)):

@@ -133,7 +133,7 @@ class TestIssueKey:
         # Use parse_key to correctly extract prefix/secret (handles embedded underscores).
         assert result.plaintext.startswith("pk_")
         prefix, secret = parse_key(result.plaintext)
-        assert len(prefix) == 8   # prefix
+        assert len(prefix) == 8  # prefix
         assert len(secret) == 43  # secret
 
     @pytest.mark.asyncio
@@ -148,12 +148,20 @@ class TestIssueKey:
             side_effect=[fake_orm1, fake_orm2],
         ):
             key1 = await issue_key(
-                name="k1", scopes=[], pepper=PEPPER,
-                session=session, tenant_id=TENANT_ID, ph=_FAST_PH,
+                name="k1",
+                scopes=[],
+                pepper=PEPPER,
+                session=session,
+                tenant_id=TENANT_ID,
+                ph=_FAST_PH,
             )
             key2 = await issue_key(
-                name="k2", scopes=[], pepper=PEPPER,
-                session=session, tenant_id=TENANT_ID, ph=_FAST_PH,
+                name="k2",
+                scopes=[],
+                pepper=PEPPER,
+                session=session,
+                tenant_id=TENANT_ID,
+                ph=_FAST_PH,
             )
 
         # Use parse_key to correctly extract prefix/secret (handles embedded underscores).
@@ -173,8 +181,12 @@ class TestIssueKey:
             return_value=fake_orm,
         ):
             await issue_key(
-                name="test", scopes=[], pepper=PEPPER,
-                session=session, tenant_id=TENANT_ID, ph=_FAST_PH,
+                name="test",
+                scopes=[],
+                pepper=PEPPER,
+                session=session,
+                tenant_id=TENANT_ID,
+                ph=_FAST_PH,
             )
 
         session.commit.assert_awaited_once()
@@ -190,8 +202,12 @@ class TestIssueKey:
             return_value=fake_orm,
         ):
             result = await issue_key(
-                name="test", scopes=["admin"], pepper=PEPPER,
-                session=session, tenant_id=TENANT_ID, ph=_FAST_PH,
+                name="test",
+                scopes=["admin"],
+                pepper=PEPPER,
+                session=session,
+                tenant_id=TENANT_ID,
+                ph=_FAST_PH,
             )
 
         assert isinstance(result, IssuedKey)
@@ -226,8 +242,12 @@ class TestIssueKey:
             side_effect=spy_create,
         ):
             result = await issue_key(
-                name="test", scopes=[], pepper=PEPPER,
-                session=session, tenant_id=TENANT_ID, ph=_FAST_PH,
+                name="test",
+                scopes=[],
+                pepper=PEPPER,
+                session=session,
+                tenant_id=TENANT_ID,
+                ph=_FAST_PH,
             )
 
         # The stored value is an Argon2id hash, not the plaintext key.
@@ -251,11 +271,14 @@ class TestVerifyKey:
 
         session = _make_mock_session()
 
-        with patch(
-            "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
-            new_callable=AsyncMock,
-            return_value=fake_orm,
-        ), patch("app.auth.api_keys.asyncio.create_task"):
+        with (
+            patch(
+                "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
+                new_callable=AsyncMock,
+                return_value=fake_orm,
+            ),
+            patch("app.auth.api_keys.asyncio.create_task"),
+        ):
             result = await verify_key(raw=raw, pepper=PEPPER, session=session, ph=_FAST_PH)
 
         assert isinstance(result, Subject)
@@ -312,11 +335,14 @@ class TestVerifyKey:
 
         session = _make_mock_session()
 
-        with patch(
-            "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
-            new_callable=AsyncMock,
-            return_value=fake_orm,
-        ), patch("app.auth.api_keys.asyncio.create_task"):
+        with (
+            patch(
+                "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
+                new_callable=AsyncMock,
+                return_value=fake_orm,
+            ),
+            patch("app.auth.api_keys.asyncio.create_task"),
+        ):
             result = await verify_key(raw=raw, pepper=PEPPER, session=session, ph=_FAST_PH)
 
         assert result.scopes == frozenset(["admin", "read"])

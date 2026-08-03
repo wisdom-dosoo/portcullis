@@ -133,7 +133,9 @@ class RateLimiter:
         now: float | None = None,
     ) -> RateLimitResult:
         """Execute token-bucket Lua script and return a typed result."""
-        capacity = policy.burst_capacity if policy.burst_capacity is not None else policy.request_limit
+        capacity = (
+            policy.burst_capacity if policy.burst_capacity is not None else policy.request_limit
+        )
         rate = policy.request_limit / policy.window_seconds  # tokens/second
         now_ts = now if now is not None else time.time()
         cost = 1

@@ -121,9 +121,7 @@ async def mcp_proxy(
     # -------------------------------------------------------------------------
     # Step 2: Pre-auth rate limit (by client IP), then authenticate
     # -------------------------------------------------------------------------
-    client_ip = (
-        getattr(request.client, "host", "unknown") if request.client else "unknown"
-    )
+    client_ip = getattr(request.client, "host", "unknown") if request.client else "unknown"
 
     try:
         pre_auth_limit, pre_auth_window = _parse_default(settings.auth_rate_limit_default)
@@ -140,7 +138,9 @@ async def mcp_proxy(
     if not pre_auth_result.allowed:
         headers = _rate_limit_headers(pre_auth_result)
         headers["Retry-After"] = str(int(pre_auth_result.retry_after_seconds))
-        return _json_error(request, 429, rpc_id, RATE_LIMITED, "Pre-auth rate limit exceeded", headers)
+        return _json_error(
+            request, 429, rpc_id, RATE_LIMITED, "Pre-auth rate limit exceeded", headers
+        )
 
     authorization = request.headers.get("authorization", "")
     raw_key = authorization.removeprefix("Bearer ").strip()
@@ -164,13 +164,19 @@ async def mcp_proxy(
         server = await repo.get_by_slug(DEFAULT_TENANT_ID, server_slug)
 
         if server is None:
-            return _json_error(request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' not found")
+            return _json_error(
+                request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' not found"
+            )
 
         if server.status == ServerStatus.DISABLED:
-            return _json_error(request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' is disabled")
+            return _json_error(
+                request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' is disabled"
+            )
 
         if server.status == ServerStatus.UNHEALTHY:
-            return _json_error(request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' is unhealthy")
+            return _json_error(
+                request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' is unhealthy"
+            )
 
         # -------------------------------------------------------------------------
         # Step 4: Derive MCP method and tool name
@@ -185,20 +191,26 @@ async def mcp_proxy(
         # -------------------------------------------------------------------------
         if method == "tools/call":
             if tool_name is None:
-                return _json_error(request, 400, rpc_id, INVALID_REQUEST, "tools/call requires params.name")
+                return _json_error(
+                    request, 400, rpc_id, INVALID_REQUEST, "tools/call requires params.name"
+                )
 
             rbac_repo = RbacRepository(session)
             permissions = await rbac_repo.get_permissions_for_subject(subject.key_id)
             decision = evaluate_permission(subject.key_id, server_slug, tool_name, permissions)
             if not decision.allowed:
-                return _json_error(request, 403, rpc_id, FORBIDDEN, f"Tool '{tool_name}' is not permitted")
+                return _json_error(
+                    request, 403, rpc_id, FORBIDDEN, f"Tool '{tool_name}' is not permitted"
+                )
 
         # -------------------------------------------------------------------------
         # Step 6: Resolve rate-limit policy and check
         # -------------------------------------------------------------------------
         rl_repo = RateLimitRepository(session)
         policies = await rl_repo.list(DEFAULT_TENANT_ID)
-        policy = resolve_policy(subject.key_id, server_slug, tool_name or method, policies, settings.rate_limit_default)
+        policy = resolve_policy(
+            subject.key_id, server_slug, tool_name or method, policies, settings.rate_limit_default
+        )
 
         try:
             limiter = RateLimiter(runtime.redis)
@@ -211,14 +223,18 @@ async def mcp_proxy(
             )
         except RedisError as exc:
             logger.error("proxy.rate_limit_redis_error", error=str(exc))
-            return _json_error(request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable")
+            return _json_error(
+                request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable"
+            )
 
         rl_headers = _rate_limit_headers(rl_result)
 
         if not rl_result.allowed:
             retry_headers = dict(rl_headers)
             retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
-            return _json_error(request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers)
+            return _json_error(
+                request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers
+            )
 
         # -------------------------------------------------------------------------
         # Step 7: Build upstream headers
@@ -243,7 +259,9 @@ async def mcp_proxy(
             )
         except UpstreamError as exc:
             logger.error("proxy.upstream_error", server_slug=server_slug, error=str(exc))
-            return _json_error(request, 502, rpc_id, UPSTREAM_UNAVAILABLE, "Upstream server error", rl_headers)
+            return _json_error(
+                request, 502, rpc_id, UPSTREAM_UNAVAILABLE, "Upstream server error", rl_headers
+            )
 
         # -------------------------------------------------------------------------
         # Step 9 / 10: Handle response
@@ -286,6 +304,7 @@ async def mcp_proxy(
 
         # SSE streaming
         if content_type.startswith("text/event-stream"):
+
             async def _stream() -> Any:
                 async for chunk in upstream_response.aiter_bytes():
                     yield chunk

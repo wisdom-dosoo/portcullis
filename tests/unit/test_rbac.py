@@ -346,7 +346,9 @@ class TestDeterministicOrdering:
         """Same inputs always produce same output (no randomness in evaluation)."""
         subject_id = uuid4()
         perms = [
-            _perm(server_pattern="svc", tool_pattern="op", effect=PermissionEffect.ALLOW, priority=5),
+            _perm(
+                server_pattern="svc", tool_pattern="op", effect=PermissionEffect.ALLOW, priority=5
+            ),
             _perm(server_pattern="*", tool_pattern="*", effect=PermissionEffect.DENY, priority=0),
         ]
         results = [evaluate_permission(subject_id, "svc", "op", perms) for _ in range(10)]

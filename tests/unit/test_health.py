@@ -72,9 +72,7 @@ async def test_healthz_returns_503_on_database_failure(
 
 
 @pytest.mark.asyncio
-async def test_healthz_returns_503_on_redis_failure(
-    app: Any, mock_runtime: MagicMock
-) -> None:
+async def test_healthz_returns_503_on_redis_failure(app: Any, mock_runtime: MagicMock) -> None:
     """GET /healthz → 503 with redis=error when Redis raises an exception."""
     mock_runtime.redis.ping = AsyncMock(side_effect=Exception("redis unreachable"))
 

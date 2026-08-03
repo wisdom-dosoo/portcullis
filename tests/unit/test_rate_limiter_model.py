@@ -162,11 +162,13 @@ class TestTokenBucketMock:
     @pytest.mark.asyncio
     async def test_remaining_decrements(self) -> None:
         # Simulate sequential calls with decreasing remaining
-        script_mock = AsyncMock(side_effect=[
-            [1, 9, b"59.0"],
-            [1, 8, b"58.0"],
-            [1, 7, b"57.0"],
-        ])
+        script_mock = AsyncMock(
+            side_effect=[
+                [1, 9, b"59.0"],
+                [1, 8, b"58.0"],
+                [1, 7, b"57.0"],
+            ]
+        )
         redis_mock = MagicMock()
         redis_mock.register_script.return_value = script_mock
 
@@ -236,11 +238,13 @@ class TestSlidingWindowMock:
 
     @pytest.mark.asyncio
     async def test_remaining_decrements(self) -> None:
-        script_mock = AsyncMock(side_effect=[
-            [1, 4, b"60.0"],
-            [1, 3, b"60.0"],
-            [1, 2, b"60.0"],
-        ])
+        script_mock = AsyncMock(
+            side_effect=[
+                [1, 4, b"60.0"],
+                [1, 3, b"60.0"],
+                [1, 2, b"60.0"],
+            ]
+        )
         redis_mock = MagicMock()
         redis_mock.register_script.return_value = script_mock
         limiter = RateLimiter(redis_mock)

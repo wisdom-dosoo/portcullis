@@ -71,20 +71,14 @@ class TestValidateUpstreamUrl:
 
     def test_production_requires_https(self) -> None:
         with pytest.raises(ValueError, match="HTTPS"):
-            validate_upstream_url(
-                "http://mcp.internal/mcp", ALLOWED_HOSTS, Environment.PRODUCTION
-            )
+            validate_upstream_url("http://mcp.internal/mcp", ALLOWED_HOSTS, Environment.PRODUCTION)
 
     def test_staging_requires_https(self) -> None:
         with pytest.raises(ValueError, match="HTTPS"):
-            validate_upstream_url(
-                "http://mcp.internal/mcp", ALLOWED_HOSTS, Environment.STAGING
-            )
+            validate_upstream_url("http://mcp.internal/mcp", ALLOWED_HOSTS, Environment.STAGING)
 
     def test_production_accepts_https(self) -> None:
-        validate_upstream_url(
-            "https://mcp.internal/mcp", ALLOWED_HOSTS, Environment.PRODUCTION
-        )
+        validate_upstream_url("https://mcp.internal/mcp", ALLOWED_HOSTS, Environment.PRODUCTION)
 
     def test_host_not_in_allowed_list_raises(self) -> None:
         with pytest.raises(ValueError, match="allowed hosts"):
@@ -105,15 +99,11 @@ class TestValidateUpstreamUrl:
             )
 
     def test_host_matching_is_case_insensitive(self) -> None:
-        validate_upstream_url(
-            "http://LOCALHOST/mcp", ALLOWED_HOSTS, Environment.DEVELOPMENT
-        )
+        validate_upstream_url("http://LOCALHOST/mcp", ALLOWED_HOSTS, Environment.DEVELOPMENT)
 
     def test_unknown_scheme_raises(self) -> None:
         with pytest.raises(ValueError):
-            validate_upstream_url(
-                "ftp://localhost/mcp", ALLOWED_HOSTS, Environment.DEVELOPMENT
-            )
+            validate_upstream_url("ftp://localhost/mcp", ALLOWED_HOSTS, Environment.DEVELOPMENT)
 
 
 # ---------------------------------------------------------------------------
@@ -188,9 +178,7 @@ class TestRegistryServiceCreate:
 
         fake_server = _make_fake_server()
 
-        with patch(
-            "app.gateway.registry.ServerRepository"
-        ) as MockRepo:
+        with patch("app.gateway.registry.ServerRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.create = AsyncMock(return_value=fake_server)
 
@@ -277,9 +265,7 @@ class TestRegistryServiceCreate:
 
         with patch("app.gateway.registry.ServerRepository") as MockRepo:
             mock_repo = MockRepo.return_value
-            mock_repo.create = AsyncMock(
-                side_effect=IntegrityError("duplicate", {}, Exception())
-            )
+            mock_repo.create = AsyncMock(side_effect=IntegrityError("duplicate", {}, Exception()))
 
             from app.gateway.registry import RegistryService
 

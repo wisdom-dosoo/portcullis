@@ -74,7 +74,5 @@ class ApiKeyRepository:
     async def update_last_used(self, key_id: UUID) -> None:
         """Stamp last_used_at for the given key (fire-and-forget, no explicit commit)."""
         await self._session.execute(
-            update(ApiKey)
-            .where(ApiKey.id == key_id)
-            .values(last_used_at=datetime.now(UTC))
+            update(ApiKey).where(ApiKey.id == key_id).values(last_used_at=datetime.now(UTC))
         )

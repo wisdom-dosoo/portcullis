@@ -43,9 +43,7 @@ async def test_migration_creates_all_tables_and_seeds_default_tenant(
         async with engine.connect() as conn:
             # Get all table names
             table_names = set(
-                await conn.run_sync(
-                    lambda sync_conn: inspect(sync_conn).get_table_names()
-                )
+                await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
             )
             assert EXPECTED_TABLES.issubset(table_names), (
                 f"Missing tables: {EXPECTED_TABLES - table_names}"

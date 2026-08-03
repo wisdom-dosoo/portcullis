@@ -36,9 +36,7 @@ class RbacRepository:
 
     async def list_roles(self, tenant_id: UUID) -> list[Role]:
         """Return all roles for the given tenant."""
-        result = await self._session.scalars(
-            select(Role).where(Role.tenant_id == tenant_id)
-        )
+        result = await self._session.scalars(select(Role).where(Role.tenant_id == tenant_id))
         return list(result.all())
 
     async def get_role(self, tenant_id: UUID, role_id: UUID) -> Role | None:

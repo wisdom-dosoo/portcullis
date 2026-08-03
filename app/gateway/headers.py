@@ -38,9 +38,7 @@ def build_upstream_headers(
         Sanitized header dict suitable for forwarding upstream.
     """
     result: dict[str, str] = {
-        k: v
-        for k, v in client_headers.items()
-        if k.lower() not in STRIP_FROM_CLIENT
+        k: v for k, v in client_headers.items() if k.lower() not in STRIP_FROM_CLIENT
     }
 
     if service_token is not None:

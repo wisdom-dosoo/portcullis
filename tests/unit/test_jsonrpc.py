@@ -39,9 +39,7 @@ class TestParseRequest:
         assert req.params is None
 
     def test_notification_has_none_id(self) -> None:
-        body = json.dumps(
-            {"jsonrpc": "2.0", "method": "notifications/initialized"}
-        ).encode()
+        body = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode()
         req = parse_request(body)
         assert req.id is None
 

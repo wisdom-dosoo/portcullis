@@ -37,9 +37,7 @@ def validate_upstream_url(
     else:
         # DEVELOPMENT: allow http or https
         if scheme not in ("http", "https"):
-            raise ValueError(
-                f"Upstream URL must use http or https scheme (got '{scheme}')"
-            )
+            raise ValueError(f"Upstream URL must use http or https scheme (got '{scheme}')")
 
     # Host allow-list check (case-insensitive exact match)
     hostname = parsed.hostname or ""

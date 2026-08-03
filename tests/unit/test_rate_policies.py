@@ -314,9 +314,7 @@ class TestPatternMatching:
 
     def test_no_server_context_when_policy_requires_server(self) -> None:
         subject_id = uuid4()
-        p = _make_policy(
-            subject_id=subject_id, server_pattern="my-server", request_limit=42
-        )
+        p = _make_policy(subject_id=subject_id, server_pattern="my-server", request_limit=42)
         # server_slug is None, so this policy should NOT match
         result = resolve_policy(
             subject_id=subject_id,

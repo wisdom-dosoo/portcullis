@@ -16,7 +16,7 @@ from app.repositories.api_keys import ApiKeyRepository
 
 # Key format: pk_{8-char prefix}_{43-char secret}
 # URL-safe base64 alphabet: A-Za-z0-9-_
-_PREFIX_BYTES = 6   # → 8 URL-safe base64 chars
+_PREFIX_BYTES = 6  # → 8 URL-safe base64 chars
 _SECRET_BYTES = 32  # → 43 URL-safe base64 chars
 _KEY_MARKER = "pk"
 

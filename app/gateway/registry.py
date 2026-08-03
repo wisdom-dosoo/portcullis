@@ -37,22 +37,15 @@ class RegistryService:
             self._settings.environment,
         )
 
-        if (
-            command.auth_mode == ServerAuthMode.SERVICE_TOKEN
-            and not command.service_token_env_var
-        ):
-            raise ValueError(
-                "service_token_env_var is required when auth_mode is 'service_token'"
-            )
+        if command.auth_mode == ServerAuthMode.SERVICE_TOKEN and not command.service_token_env_var:
+            raise ValueError("service_token_env_var is required when auth_mode is 'service_token'")
 
         try:
             server = await self._repo.create(DEFAULT_TENANT_ID, command)
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
-            raise ValueError(
-                f"A server with slug '{command.slug}' already exists"
-            ) from exc
+            raise ValueError(f"A server with slug '{command.slug}' already exists") from exc
 
         return ServerView.model_validate(server)
 

@@ -158,9 +158,7 @@ async def test_parse_validation_error_contract(
     assert "application/json" in response.headers.get("content-type", ""), (
         f"{description}: expected application/json content-type"
     )
-    assert "x-request-id" in response.headers, (
-        f"{description}: missing X-Request-Id header"
-    )
+    assert "x-request-id" in response.headers, f"{description}: missing X-Request-Id header"
 
     resp_body = response.json()
     _assert_jsonrpc_error_shape(resp_body, expected_code)

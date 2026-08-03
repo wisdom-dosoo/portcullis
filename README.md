@@ -278,16 +278,28 @@ portcullis/
 ```bash
 git clone https://github.com/wisdom-dosoo/portcullis.git
 cd portcullis
-cp .env.example .env          # fill in JWT_JWKS_URL if using OAuth mode
+cp .env.example .env          # set API_KEY_PEPPER and any other required vars
 docker compose -f deploy/docker-compose.yml up --build
 ```
 
-This brings up Portcullis (`:8080`), Postgres, Redis, and a Jaeger UI (`:16686`) for trace inspection. Alembic migrations run automatically on container start.
+This brings up Portcullis (`:8080`), Postgres, and Redis. Alembic migrations run automatically on container start via the `entrypoint` in `deploy/Dockerfile`.
+
+Bootstrap your first admin API key using the CLI (run inside the container or locally against the same DB):
+
+```bash
+# Inside the container
+docker compose -f deploy/docker-compose.yml exec portcullis portcullis bootstrap
+
+# Or locally (requires DATABASE_URL and API_KEY_PEPPER env vars)
+portcullis bootstrap
+```
+
+The command prints a one-time admin key. Store it securely — it cannot be recovered.
 
 ### 8.3 Local Development (without Docker)
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 docker compose -f deploy/docker-compose.yml up -d postgres redis   # infra only
 alembic upgrade head
