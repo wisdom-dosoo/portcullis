@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from alembic.config import Config
 from sqlalchemy import inspect, text
@@ -28,10 +30,12 @@ async def test_migration_creates_all_tables_and_seeds_default_tenant(
     postgres_container: str,
 ) -> None:
     """Upgrade to head then verify all 7 tables exist and default tenant is seeded."""
-    # Run alembic upgrade to head using the container URL
+    # Run alembic upgrade to head using the container URL.
+    # Must run in a thread because env.py calls asyncio.run() which
+    # cannot be called from within an already-running event loop.
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", postgres_container)
-    command.upgrade(alembic_cfg, "head")
+    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
 
     # Inspect schema using async engine
     engine = create_async_engine(postgres_container, pool_pre_ping=True)
