@@ -23,6 +23,7 @@ SUPPORTED_METHODS: frozenset[str] = frozenset(
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
 UNAUTHORIZED = -32001
 FORBIDDEN = -32002
 RATE_LIMITED = -32003
@@ -62,7 +63,7 @@ def parse_request(body: bytes) -> JsonRpcRequest:
     try:
         data: Any = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise ValueError(f"code={PARSE_ERROR} Parse error: {exc}") from exc
+        raise ValueError(f"code={PARSE_ERROR} Parse error") from exc
 
     if not isinstance(data, dict):
         raise ValueError(f"code={INVALID_REQUEST} Request must be a JSON object")  # noqa: TRY004

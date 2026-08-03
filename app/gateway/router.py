@@ -19,6 +19,7 @@ from app.gateway.headers import build_upstream_headers, extract_service_token
 from app.gateway.jsonrpc import (
     FORBIDDEN,
     INTERNAL_ERROR,
+    INVALID_PARAMS,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
@@ -157,169 +158,191 @@ async def mcp_proxy(
         except ValueError:
             return _json_error(request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing API key")
 
-        # -------------------------------------------------------------------------
-        # Step 3: Resolve registry entry (must be ACTIVE)
-        # -------------------------------------------------------------------------
-        repo = ServerRepository(session)
-        server = await repo.get_by_slug(DEFAULT_TENANT_ID, server_slug)
+        try:
+            # -------------------------------------------------------------------------
+            # Step 3: Resolve registry entry (must be ACTIVE)
+            # -------------------------------------------------------------------------
+            repo = ServerRepository(session)
+            server = await repo.get_by_slug(DEFAULT_TENANT_ID, server_slug)
 
-        if server is None:
-            return _json_error(
-                request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' not found"
-            )
-
-        if server.status == ServerStatus.DISABLED:
-            return _json_error(
-                request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' is disabled"
-            )
-
-        if server.status == ServerStatus.UNHEALTHY:
-            return _json_error(
-                request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' is unhealthy"
-            )
-
-        # -------------------------------------------------------------------------
-        # Step 4: Derive MCP method and tool name
-        # -------------------------------------------------------------------------
-        method = rpc_request.method
-        tool_name: str | None = None
-        if method == "tools/call" and rpc_request.params:
-            tool_name = rpc_request.params.get("name")
-
-        # -------------------------------------------------------------------------
-        # Step 5: RBAC check for tools/call
-        # -------------------------------------------------------------------------
-        if method == "tools/call":
-            if tool_name is None:
+            if server is None:
                 return _json_error(
-                    request, 400, rpc_id, INVALID_REQUEST, "tools/call requires params.name"
+                    request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' not found"
                 )
 
-            rbac_repo = RbacRepository(session)
-            permissions = await rbac_repo.get_permissions_for_subject(subject.key_id)
-            decision = evaluate_permission(subject.key_id, server_slug, tool_name, permissions)
-            if not decision.allowed:
+            if server.status == ServerStatus.DISABLED:
                 return _json_error(
-                    request, 403, rpc_id, FORBIDDEN, f"Tool '{tool_name}' is not permitted"
+                    request,
+                    503,
+                    rpc_id,
+                    UPSTREAM_UNAVAILABLE,
+                    f"Server '{server_slug}' is disabled",
                 )
 
-        # -------------------------------------------------------------------------
-        # Step 6: Resolve rate-limit policy and check
-        # -------------------------------------------------------------------------
-        rl_repo = RateLimitRepository(session)
-        policies = await rl_repo.list(DEFAULT_TENANT_ID)
-        policy = resolve_policy(
-            subject.key_id, server_slug, tool_name or method, policies, settings.rate_limit_default
-        )
+            if server.status == ServerStatus.UNHEALTHY:
+                return _json_error(
+                    request,
+                    503,
+                    rpc_id,
+                    UPSTREAM_UNAVAILABLE,
+                    f"Server '{server_slug}' is unhealthy",
+                )
 
-        try:
-            limiter = RateLimiter(runtime.redis)
-            rl_result = await limiter.check(
-                tenant_id=DEFAULT_TENANT_ID,
-                subject_id=subject.key_id,
-                server_slug=server_slug,
-                tool_or_method=tool_name or method,
-                policy=policy,
-            )
-        except RedisError as exc:
-            logger.error("proxy.rate_limit_redis_error", error=str(exc))
-            return _json_error(
-                request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable"
-            )
+            # -------------------------------------------------------------------------
+            # Step 4: Derive MCP method and tool name
+            # -------------------------------------------------------------------------
+            method = rpc_request.method
+            tool_name: str | None = None
+            if method == "tools/call" and rpc_request.params:
+                tool_name = rpc_request.params.get("name")
 
-        rl_headers = _rate_limit_headers(rl_result)
+            # -------------------------------------------------------------------------
+            # Step 5: RBAC check for tools/call
+            # -------------------------------------------------------------------------
+            if method == "tools/call":
+                if tool_name is None:
+                    return _json_error(
+                        request, 422, rpc_id, INVALID_PARAMS, "tools/call requires params.name"
+                    )
 
-        if not rl_result.allowed:
-            retry_headers = dict(rl_headers)
-            retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
-            return _json_error(
-                request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers
-            )
+                rbac_repo = RbacRepository(session)
+                permissions = await rbac_repo.get_permissions_for_subject(subject.key_id)
+                decision = evaluate_permission(subject.key_id, server_slug, tool_name, permissions)
+                if not decision.allowed:
+                    return _json_error(
+                        request, 403, rpc_id, FORBIDDEN, f"Tool '{tool_name}' is not permitted"
+                    )
 
-        # -------------------------------------------------------------------------
-        # Step 7: Build upstream headers
-        # -------------------------------------------------------------------------
-        service_token: str | None = None
-        if server.auth_mode == ServerAuthMode.SERVICE_TOKEN:
-            service_token = extract_service_token(server.service_token_env_var)
-
-        upstream_headers = build_upstream_headers(dict(request.headers), service_token)
-
-        # -------------------------------------------------------------------------
-        # Step 8: Forward to upstream
-        # -------------------------------------------------------------------------
-        proxy = McpProxy(runtime.http_client, settings)
-        try:
-            upstream_response = await proxy.forward(
-                upstream_url=server.upstream_url,
-                path="",
-                method=request.method,
-                headers=upstream_headers,
-                body=body,
-            )
-        except UpstreamError as exc:
-            logger.error("proxy.upstream_error", server_slug=server_slug, error=str(exc))
-            return _json_error(
-                request, 502, rpc_id, UPSTREAM_UNAVAILABLE, "Upstream server error", rl_headers
+            # -------------------------------------------------------------------------
+            # Step 6: Resolve rate-limit policy and check
+            # -------------------------------------------------------------------------
+            rl_repo = RateLimitRepository(session)
+            policies = await rl_repo.list(DEFAULT_TENANT_ID)
+            policy = resolve_policy(
+                subject.key_id,
+                server_slug,
+                tool_name or method,
+                policies,
+                settings.rate_limit_default,
             )
 
-        # -------------------------------------------------------------------------
-        # Step 9 / 10: Handle response
-        # -------------------------------------------------------------------------
+            try:
+                limiter = RateLimiter(runtime.redis)
+                rl_result = await limiter.check(
+                    tenant_id=DEFAULT_TENANT_ID,
+                    subject_id=subject.key_id,
+                    server_slug=server_slug,
+                    tool_or_method=tool_name or method,
+                    policy=policy,
+                )
+            except RedisError as exc:
+                logger.error("proxy.rate_limit_redis_error", error=str(exc))
+                return _json_error(
+                    request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable"
+                )
 
-        # Notifications: return 202 with no body
-        if rpc_id is None:
+            rl_headers = _rate_limit_headers(rl_result)
+
+            if not rl_result.allowed:
+                retry_headers = dict(rl_headers)
+                retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
+                return _json_error(
+                    request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers
+                )
+
+            # -------------------------------------------------------------------------
+            # Step 7: Build upstream headers
+            # -------------------------------------------------------------------------
+            service_token: str | None = None
+            if server.auth_mode == ServerAuthMode.SERVICE_TOKEN:
+                service_token = extract_service_token(server.service_token_env_var)
+
+            upstream_headers = build_upstream_headers(dict(request.headers), service_token)
+
+            # -------------------------------------------------------------------------
+            # Step 8: Forward to upstream
+            # -------------------------------------------------------------------------
+            proxy = McpProxy(runtime.http_client, settings)
+            try:
+                upstream_response = await proxy.forward(
+                    upstream_url=server.upstream_url,
+                    path="",
+                    method=request.method,
+                    headers=upstream_headers,
+                    body=body,
+                )
+            except UpstreamError as exc:
+                logger.error("proxy.upstream_error", server_slug=server_slug, error=str(exc))
+                return _json_error(
+                    request,
+                    502,
+                    rpc_id,
+                    UPSTREAM_UNAVAILABLE,
+                    "Upstream server error",
+                    rl_headers,
+                )
+
+            # -------------------------------------------------------------------------
+            # Step 9 / 10: Handle response
+            # -------------------------------------------------------------------------
+
+            # Notifications: return 202 with no body
+            if rpc_id is None:
+                response_headers = dict(rl_headers)
+                if request_id:
+                    response_headers["X-Request-Id"] = request_id
+                return Response(status_code=202, headers=response_headers)
+
+            # Build base response headers
             response_headers = dict(rl_headers)
             if request_id:
                 response_headers["X-Request-Id"] = request_id
-            return Response(status_code=202, headers=response_headers)
 
-        # Build base response headers
-        response_headers = dict(rl_headers)
-        if request_id:
-            response_headers["X-Request-Id"] = request_id
+            content_type = upstream_response.headers.get("content-type", "")
 
-        content_type = upstream_response.headers.get("content-type", "")
+            # tools/list: buffer, parse, filter, return
+            if method == "tools/list":
+                raw_body = upstream_response.content
+                try:
+                    response_body: dict[str, Any] = json.loads(raw_body)
+                except (json.JSONDecodeError, ValueError):
+                    # Cannot parse — pass through as-is
+                    return Response(
+                        content=raw_body,
+                        status_code=upstream_response.status_code,
+                        headers=response_headers,
+                        media_type=content_type or "application/json",
+                    )
 
-        # tools/list: buffer, parse, filter, return
-        if method == "tools/list":
-            raw_body = upstream_response.content
-            try:
-                response_body: dict[str, Any] = json.loads(raw_body)
-            except (json.JSONDecodeError, ValueError):
-                # Cannot parse — pass through as-is
-                return Response(
-                    content=raw_body,
+                filtered = await filter_tools_list(response_body, subject, server_slug, session)
+                return JSONResponse(
+                    content=filtered,
                     status_code=upstream_response.status_code,
                     headers=response_headers,
-                    media_type=content_type or "application/json",
                 )
 
-            filtered = await filter_tools_list(response_body, subject, server_slug, session)
-            return JSONResponse(
-                content=filtered,
+            # SSE streaming
+            if content_type.startswith("text/event-stream"):
+
+                async def _stream() -> Any:
+                    async for chunk in upstream_response.aiter_bytes():
+                        yield chunk
+
+                return StreamingResponse(
+                    _stream(),
+                    status_code=upstream_response.status_code,
+                    headers=response_headers,
+                    media_type=content_type,
+                )
+
+            # Default: buffer and return
+            return Response(
+                content=upstream_response.content,
                 status_code=upstream_response.status_code,
                 headers=response_headers,
+                media_type=content_type or "application/json",
             )
 
-        # SSE streaming
-        if content_type.startswith("text/event-stream"):
-
-            async def _stream() -> Any:
-                async for chunk in upstream_response.aiter_bytes():
-                    yield chunk
-
-            return StreamingResponse(
-                _stream(),
-                status_code=upstream_response.status_code,
-                headers=response_headers,
-                media_type=content_type,
-            )
-
-        # Default: buffer and return
-        return Response(
-            content=upstream_response.content,
-            status_code=upstream_response.status_code,
-            headers=response_headers,
-            media_type=content_type or "application/json",
-        )
+        except Exception:
+            logger.exception("proxy.unhandled_error", server_slug=server_slug)
+            return _json_error(request, 500, rpc_id, INTERNAL_ERROR, "Internal server error")

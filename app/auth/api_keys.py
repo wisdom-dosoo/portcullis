@@ -23,6 +23,10 @@ _KEY_MARKER = "pk"
 # Regex: "pk_" + 8 URL-safe base64 chars + "_" + 43 URL-safe base64 chars
 _KEY_RE = re.compile(r"^pk_([A-Za-z0-9\-_]{8})_([A-Za-z0-9\-_]{43})$")
 
+# Timing defense: dummy hash used when no prefix row is found, so that
+# both "prefix not found" and "wrong secret" paths take the same time.
+_DUMMY_HASH: str = ""
+
 
 def _make_ph(ph: PasswordHasher | None) -> PasswordHasher:
     return ph if ph is not None else PasswordHasher()
@@ -101,7 +105,17 @@ async def verify_key(
 
     repo = ApiKeyRepository(session)
     api_key = await repo.get_by_prefix(prefix)
+
     if api_key is None:
+        # Timing defense: always do a hash operation so prefix existence
+        # cannot be inferred from response time.
+        global _DUMMY_HASH
+        if not _DUMMY_HASH:
+            _DUMMY_HASH = hasher.hash("dummy-timing-defense")
+        try:
+            hasher.verify(_DUMMY_HASH, secret + pepper)
+        except (VerifyMismatchError, VerificationError):
+            pass
         raise ValueError("invalid API key")
 
     try:
