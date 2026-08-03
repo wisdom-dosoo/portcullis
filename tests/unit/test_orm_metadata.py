@@ -1,0 +1,113 @@
+"""Persistence metadata contract for the v0.1 control plane."""
+
+from collections.abc import Iterable
+
+import pytest
+from sqlalchemy import CheckConstraint, Enum, Table, UniqueConstraint
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import db, orm
+
+EXPECTED_TABLES = {
+    "tenants",
+    "mcp_servers",
+    "api_keys",
+    "roles",
+    "role_bindings",
+    "tool_permissions",
+    "rate_limit_policies",
+}
+
+
+def _unique_column_sets(table: Table) -> set[frozenset[str]]:
+    return {
+        frozenset(column.name for column in constraint.columns)
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+
+
+def _foreign_key_targets(table: Table, column_name: str) -> set[str]:
+    return {foreign_key.target_fullname for foreign_key in table.c[column_name].foreign_keys}
+
+
+def _enum_values(table: Table, column_name: str) -> tuple[str, ...]:
+    column_type = table.c[column_name].type
+    assert isinstance(column_type, Enum)
+    return tuple(column_type.enums)
+
+
+def _check_sql(table: Table) -> Iterable[str]:
+    return (
+        str(constraint.sqltext).replace(" ", "").lower()
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+    )
+
+
+def test_metadata_contains_complete_v0_1_schema() -> None:
+    assert set(orm.Base.metadata.tables) == EXPECTED_TABLES
+
+
+@pytest.mark.parametrize(
+    "table_name",
+    ("mcp_servers", "api_keys", "roles", "rate_limit_policies"),
+)
+def test_tenant_owned_tables_reference_tenants(table_name: str) -> None:
+    table = orm.Base.metadata.tables[table_name]
+    assert _foreign_key_targets(table, "tenant_id") == {"tenants.id"}
+
+
+def test_registry_constraints_and_enums() -> None:
+    table = orm.Base.metadata.tables["mcp_servers"]
+
+    assert frozenset(("tenant_id", "slug")) in _unique_column_sets(table)
+    assert _enum_values(table, "transport") == ("streamable_http",)
+    assert _enum_values(table, "auth_mode") == ("none", "service_token")
+    assert _enum_values(table, "status") == ("active", "disabled", "unhealthy")
+    assert any("consecutive_health_failures>=0" in sql for sql in _check_sql(table))
+
+
+def test_api_key_and_role_identity_constraints() -> None:
+    api_keys = orm.Base.metadata.tables["api_keys"]
+    roles = orm.Base.metadata.tables["roles"]
+    bindings = orm.Base.metadata.tables["role_bindings"]
+
+    assert frozenset(("key_prefix",)) in _unique_column_sets(api_keys)
+    assert frozenset(("tenant_id", "name")) in _unique_column_sets(roles)
+    assert _foreign_key_targets(bindings, "role_id") == {"roles.id"}
+    assert _foreign_key_targets(bindings, "subject_id") == {"api_keys.id"}
+    assert _enum_values(bindings, "subject_type") == ("api_key",)
+    assert frozenset(("role_id", "subject_type", "subject_id")) in _unique_column_sets(bindings)
+
+
+def test_permission_constraints_and_enums() -> None:
+    table = orm.Base.metadata.tables["tool_permissions"]
+
+    assert _foreign_key_targets(table, "role_id") == {"roles.id"}
+    assert _enum_values(table, "effect") == ("allow", "deny")
+
+
+def test_rate_limit_constraints_and_enums() -> None:
+    table = orm.Base.metadata.tables["rate_limit_policies"]
+    checks = tuple(_check_sql(table))
+
+    assert _foreign_key_targets(table, "subject_id") == {"api_keys.id"}
+    assert _enum_values(table, "algorithm") == ("token_bucket", "sliding_window")
+    assert any("request_limit>0" in sql for sql in checks)
+    assert any("window_seconds>0" in sql for sql in checks)
+    assert any("burst_capacityisnullorburst_capacity>0" in sql for sql in checks)
+    assert any("algorithm!='token_bucket'orburst_capacityisnotnull" in sql for sql in checks)
+
+
+@pytest.mark.asyncio
+async def test_async_database_factories_do_not_connect_eagerly() -> None:
+    engine = db.create_engine("postgresql+asyncpg://user:password@database/portcullis")
+    session_factory = db.create_session_factory(engine)
+
+    try:
+        assert engine.url.drivername == "postgresql+asyncpg"
+        assert session_factory.class_ is AsyncSession
+        assert session_factory.kw["expire_on_commit"] is False
+    finally:
+        await db.dispose_engine(engine)
