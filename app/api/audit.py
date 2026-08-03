@@ -1,0 +1,1 @@
+"""Audit query endpoint boundary."""
