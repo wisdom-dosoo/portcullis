@@ -88,6 +88,10 @@ def create_app() -> FastAPI:
 
     application.include_router(api_keys_router)
 
+    from app.api.roles import router as roles_router
+
+    application.include_router(roles_router)
+
     return application
 
 

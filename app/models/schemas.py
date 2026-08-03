@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.models.orm import ServerAuthMode, ServerStatus, ServerTransport
+from app.models.orm import PermissionEffect, ServerAuthMode, ServerStatus, ServerTransport
 
 _SLUG_ALLOWED = re.compile(r"^[a-z0-9-]+$")
 
@@ -102,6 +102,63 @@ class ApiKeyCreateResponse(BaseModel):
 
     key: ApiKeyView
     plaintext: str
+
+
+class RoleCreate(BaseModel):
+    """Schema for creating a new role."""
+
+    name: str
+
+
+class RoleView(BaseModel):
+    """Safe response schema for a role."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    created_at: datetime
+
+
+class RoleBindingCreate(BaseModel):
+    """Schema for binding a subject (API key) to a role."""
+
+    subject_id: UUID
+
+
+class RoleBindingView(BaseModel):
+    """Safe response schema for a role binding."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    role_id: UUID
+    subject_type: str
+    subject_id: UUID
+    created_at: datetime
+
+
+class ToolPermissionCreate(BaseModel):
+    """Schema for creating a tool permission rule on a role."""
+
+    server_pattern: str
+    tool_pattern: str
+    effect: PermissionEffect
+    priority: int = 0
+
+
+class ToolPermissionView(BaseModel):
+    """Safe response schema for a tool permission rule."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    role_id: UUID
+    server_pattern: str
+    tool_pattern: str
+    effect: PermissionEffect
+    priority: int
+    created_at: datetime
 
 
 class ServerView(BaseModel):
