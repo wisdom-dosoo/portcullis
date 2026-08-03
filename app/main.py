@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from starlette.types import ASGIApp
 
 from app.api.health import router as health_router
 from app.config import get_settings
+from app.gateway.health_monitor import HealthMonitor
 from app.runtime import Runtime
 
 logger = structlog.get_logger(__name__)
@@ -25,10 +27,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     runtime = Runtime.build(settings)
     app.state.runtime = runtime
+
+    monitor = HealthMonitor(runtime.session_factory, runtime.http_client, settings)
+    app.state.monitor = monitor
+    monitor_task = asyncio.create_task(monitor.start())
+
     logger.info("app.startup", environment=settings.environment)
     try:
         yield
     finally:
+        await monitor.stop()
+        await monitor_task
         await runtime.close()
         logger.info("app.shutdown")
 
@@ -70,6 +79,10 @@ def create_app() -> FastAPI:
 
     application.add_middleware(RequestIdMiddleware)
     application.include_router(health_router)
+
+    from app.api.servers import router as servers_router
+
+    application.include_router(servers_router)
 
     return application
 
