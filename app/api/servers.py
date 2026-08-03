@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, get_settings_dep
+from app.auth.dependencies import admin_subject, authenticated_subject
+from app.auth.subject import Subject
 from app.config import Settings
 from app.gateway.registry import DEFAULT_TENANT_ID, RegistryService
 from app.models.schemas import ServerCreate, ServerUpdate, ServerView
@@ -21,11 +23,9 @@ async def create_server(
     body: ServerCreate,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    _subject: Annotated[Subject, Depends(admin_subject)],
 ) -> ServerView:
-    """Register a new upstream MCP server.
-
-    TODO: require admin auth
-    """
+    """Register a new upstream MCP server. Requires admin scope."""
     svc = RegistryService(session=session, settings=settings)
     try:
         return await svc.create(body)
@@ -37,6 +37,7 @@ async def create_server(
 async def list_servers(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    _subject: Annotated[Subject, Depends(authenticated_subject)],
 ) -> list[ServerView]:
     """Return all registered MCP servers."""
     svc = RegistryService(session=session, settings=settings)
@@ -48,6 +49,7 @@ async def get_server(
     slug: str,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    _subject: Annotated[Subject, Depends(authenticated_subject)],
 ) -> ServerView:
     """Return a single MCP server by slug."""
     svc = RegistryService(session=session, settings=settings)
@@ -63,11 +65,9 @@ async def update_server(
     body: ServerUpdate,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    _subject: Annotated[Subject, Depends(admin_subject)],
 ) -> ServerView:
-    """Update an existing MCP server registration.
-
-    TODO: require admin auth
-    """
+    """Update an existing MCP server registration. Requires admin scope."""
     svc = RegistryService(session=session, settings=settings)
     try:
         return await svc.update(slug, body)
@@ -82,11 +82,9 @@ async def delete_server(
     slug: str,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    _subject: Annotated[Subject, Depends(admin_subject)],
 ) -> Response:
-    """Delete an MCP server registration.
-
-    TODO: require admin auth
-    """
+    """Delete an MCP server registration. Requires admin scope."""
     svc = RegistryService(session=session, settings=settings)
     try:
         await svc.delete(slug)
@@ -101,6 +99,7 @@ async def trigger_health_probe(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    _subject: Annotated[Subject, Depends(authenticated_subject)],
 ) -> dict[str, str]:
     """Trigger an immediate health probe for the specified server."""
     # Fetch the ORM object to pass to the monitor

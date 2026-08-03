@@ -11,6 +11,8 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
+from app.auth.dependencies import admin_subject, authenticated_subject
+from app.auth.subject import Subject
 from app.main import create_app
 from app.models.orm import ServerAuthMode, ServerStatus, ServerTransport
 from app.models.schemas import ServerView
@@ -60,6 +62,15 @@ def _make_app_with_mock_runtime() -> tuple[FastAPI, MagicMock]:
     # Add a mock monitor
     mock_monitor = AsyncMock()
     app.state.monitor = mock_monitor
+
+    # Override auth dependencies so routes don't require a real API key
+    fake_subject = Subject(
+        key_id=SERVER_ID,
+        tenant_id=DEFAULT_TENANT_ID,
+        scopes=frozenset(["admin"]),
+    )
+    app.dependency_overrides[admin_subject] = lambda: fake_subject
+    app.dependency_overrides[authenticated_subject] = lambda: fake_subject
 
     return app, mock_runtime
 

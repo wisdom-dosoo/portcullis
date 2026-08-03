@@ -84,6 +84,10 @@ def create_app() -> FastAPI:
 
     application.include_router(servers_router)
 
+    from app.api.api_keys import router as api_keys_router
+
+    application.include_router(api_keys_router)
+
     return application
 
 
