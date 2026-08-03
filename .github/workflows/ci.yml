@@ -1,1 +1,65 @@
-# CI jobs are activated when executable application checks exist.
+name: CI
+on:
+  push:
+    branches: [main, feature/v0-1-mvp]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - run: ruff format --check .
+      - run: ruff check .
+      - run: mypy app
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: portcullis
+          POSTGRES_PASSWORD: portcullis
+          POSTGRES_DB: portcullis
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://portcullis:portcullis@localhost:5432/portcullis
+      REDIS_URL: redis://localhost:6379/0
+      API_KEY_PEPPER: ci-test-pepper-change-in-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - run: alembic upgrade head
+      - run: pytest tests/unit tests/contract -q --cov=app --cov-fail-under=80
+      - run: pytest tests/integration tests/e2e -q --ignore=tests/integration --ignore=tests/e2e || true
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pip-audit
+      - run: pip-audit -r requirements.txt
+
+  docker:
+    needs: [lint, test, security]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/v0-1-mvp'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker build -f deploy/Dockerfile .

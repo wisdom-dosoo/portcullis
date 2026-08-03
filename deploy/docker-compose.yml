@@ -33,10 +33,18 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://portcullis:portcullis@postgres:5432/portcullis
       REDIS_URL: redis://redis:6379/0
+      API_KEY_PEPPER: ${API_KEY_PEPPER:-development-only-change-me}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     ports:
-      - "8000:8000"
+      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

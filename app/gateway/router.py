@@ -20,6 +20,7 @@ from app.gateway.jsonrpc import (
     FORBIDDEN,
     INTERNAL_ERROR,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     PARSE_ERROR,
     RATE_LIMITED,
     UNAUTHORIZED,
@@ -98,10 +99,22 @@ async def mcp_proxy(
     except ValueError as exc:
         msg = str(exc)
         # Detect error code from embedded hint
-        code = INVALID_REQUEST
         if f"code={PARSE_ERROR}" in msg:
             code = PARSE_ERROR
-        return _json_error(request, 400, None, code, msg.split(" ", 1)[-1] if " " in msg else msg)
+            http_status = 400
+        elif f"code={METHOD_NOT_FOUND}" in msg:
+            code = METHOD_NOT_FOUND
+            http_status = 404
+        else:
+            code = INVALID_REQUEST
+            http_status = 400
+        return _json_error(
+            request,
+            http_status,
+            None,
+            code,
+            msg.split(" ", 1)[-1] if " " in msg else msg,
+        )
 
     rpc_id = rpc_request.id
 
