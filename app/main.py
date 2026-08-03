@@ -96,6 +96,10 @@ def create_app() -> FastAPI:
 
     application.include_router(rate_limits_router)
 
+    from app.gateway.router import router as proxy_router
+
+    application.include_router(proxy_router)
+
     return application
 
 
