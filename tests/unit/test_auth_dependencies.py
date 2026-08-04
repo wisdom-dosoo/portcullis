@@ -68,7 +68,7 @@ class TestCurrentSubject:
         session = _make_mock_session()
         settings = _make_mock_settings()
 
-        with patch("app.auth.dependencies.verify_key", new_callable=AsyncMock) as mock_verify:
+        with patch("app.auth.authenticate.verify_key", new_callable=AsyncMock) as mock_verify:
             mock_verify.side_effect = ValueError("invalid API key")
 
             with pytest.raises(HTTPException) as exc_info:
@@ -87,7 +87,7 @@ class TestCurrentSubject:
         settings = _make_mock_settings()
         expected = _make_subject(["admin"])
 
-        with patch("app.auth.dependencies.verify_key", new_callable=AsyncMock) as mock_verify:
+        with patch("app.auth.authenticate.verify_key", new_callable=AsyncMock) as mock_verify:
             mock_verify.return_value = expected
 
             result = await current_subject(
@@ -109,7 +109,7 @@ class TestCurrentSubject:
         session = _make_mock_session()
         settings = _make_mock_settings()
 
-        with patch("app.auth.dependencies.verify_key", new_callable=AsyncMock) as mock_verify:
+        with patch("app.auth.authenticate.verify_key", new_callable=AsyncMock) as mock_verify:
             mock_verify.side_effect = ValueError("invalid API key")
 
             with pytest.raises(HTTPException) as exc_info:
@@ -127,7 +127,7 @@ class TestCurrentSubject:
         session = _make_mock_session()
         settings = _make_mock_settings()
 
-        with patch("app.auth.dependencies.verify_key", new_callable=AsyncMock) as mock_verify:
+        with patch("app.auth.authenticate.verify_key", new_callable=AsyncMock) as mock_verify:
             mock_verify.side_effect = ValueError("invalid API key")
 
             with pytest.raises(HTTPException) as exc_info:

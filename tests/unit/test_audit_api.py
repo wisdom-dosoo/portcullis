@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-from app.auth.dependencies import authenticated_subject
+from app.auth.dependencies import admin_subject
 from app.auth.subject import Subject
 from app.main import create_app
 from app.models.orm import AuditEventType, SubjectType
@@ -68,9 +68,9 @@ def _make_app_with_mock_runtime() -> tuple[FastAPI, MagicMock]:
         subject_id=str(AUDIT_ID),
         subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
-        scopes=frozenset(["read"]),
+        scopes=frozenset(["admin"]),
     )
-    app.dependency_overrides[authenticated_subject] = lambda: fake_subject
+    app.dependency_overrides[admin_subject] = lambda: fake_subject
 
     return app, mock_runtime
 
@@ -210,7 +210,7 @@ class TestListAuditLogs:
         mock_runtime.session_factory = MagicMock(return_value=mock_session_ctx)
         app.state.runtime = mock_runtime
         app.state.monitor = AsyncMock()
-        # Do NOT override authenticated_subject — let it run normally (will fail without a key)
+        # Do NOT override admin_subject — let it run normally (will fail without a key)
 
         transport = ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

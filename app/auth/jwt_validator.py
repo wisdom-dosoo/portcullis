@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from uuid import UUID
 
 import httpx
 from authlib.jose import JsonWebKey, jwt as jose_jwt
@@ -12,9 +11,8 @@ from authlib.jose.errors import JoseError
 
 from app.auth.subject import Subject
 from app.config import Settings
+from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import SubjectType
-
-DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 # Module-level in-memory JWKS cache.
 # Keys: "keys" (the JWKS dict) and "fetched_at" (time.monotonic() float).

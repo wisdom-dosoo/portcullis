@@ -8,8 +8,7 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, get_settings_dep
-from app.auth.api_keys import verify_key
-from app.auth.jwt_validator import verify_jwt
+from app.auth.authenticate import authenticate
 from app.auth.subject import Subject
 from app.config import Settings
 
@@ -29,14 +28,7 @@ async def current_subject(
     if not raw:
         raise HTTPException(status_code=401, detail="Invalid or missing credentials")
     try:
-        if raw.startswith("pk_"):
-            return await verify_key(raw=raw, pepper=settings.api_key_pepper, session=session)
-        else:
-            if not settings.jwt_jwks_url:
-                raise HTTPException(status_code=401, detail="Invalid or missing credentials")
-            return await verify_jwt(raw_token=raw, settings=settings)
-    except HTTPException:
-        raise
+        return await authenticate(raw, settings, session)
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid or missing credentials")
 

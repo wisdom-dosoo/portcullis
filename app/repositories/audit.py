@@ -65,16 +65,11 @@ class AuditRepository:
 
         Applies event_type and server_slug filters when provided.
         """
-        stmt = (
-            select(AuditLog)
-            .where(AuditLog.tenant_id == tenant_id)
-            .order_by(AuditLog.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+        stmt = select(AuditLog).where(AuditLog.tenant_id == tenant_id)
         if event_type is not None:
             stmt = stmt.where(AuditLog.event_type == event_type)
         if server_slug is not None:
             stmt = stmt.where(AuditLog.server_slug == server_slug)
+        stmt = stmt.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
         result = await self._session.scalars(stmt)
         return list(result.all())

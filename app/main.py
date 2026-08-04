@@ -83,10 +83,13 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         duration = time.perf_counter() - start
 
-        # Extract server_slug from MCP proxy paths; use route path otherwise.
+        # Use a fixed label for MCP proxy paths — the slug is user-supplied and
+        # unvalidated here, so using it directly would create unbounded Prometheus
+        # cardinality (label cardinality bomb).  Per-server metrics are emitted
+        # from within router.py after the server is validated against the registry.
         path = request.url.path
         if path.startswith("/mcp/"):
-            server_slug = path.removeprefix("/mcp/").split("/")[0] or "unknown"
+            server_slug = "proxy"
             method_label = "proxy"
         else:
             server_slug = "control_plane"
@@ -170,7 +173,7 @@ def create_app() -> FastAPI:
         logger.error("unhandled_exception", path=request.url.path, error=str(exc), traceback=tb)
         return JSONResponse(
             status_code=500,
-            content={"detail": f"UNHANDLED: {type(exc).__name__}: {exc}"},
+            content={"detail": "Internal server error"},
         )
 
     # Wire FastAPI auto-instrumentation after the app and all routers are set up.

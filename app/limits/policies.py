@@ -26,7 +26,7 @@ class EffectivePolicy:
     burst_capacity: int | None
 
 
-def _parse_default(default_str: str) -> tuple[int, int]:
+def parse_default(default_str: str) -> tuple[int, int]:
     """Parse '100/minute' → (100, 60).  Supports second/minute/hour/day."""
     count_str, unit = default_str.split("/", 1)
     return int(count_str), UNIT_SECONDS[unit]
@@ -108,7 +108,7 @@ def resolve_policy(
     candidates = [p for p in policies if _policy_matches(p, subject_id, server_slug, tool_name)]
 
     if not candidates:
-        request_limit, window_seconds = _parse_default(default_str)
+        request_limit, window_seconds = parse_default(default_str)
         return EffectivePolicy(
             algorithm=RateLimitAlgorithm.TOKEN_BUCKET,
             request_limit=request_limit,

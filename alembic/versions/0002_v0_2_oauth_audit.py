@@ -30,11 +30,13 @@ depends_on: str | tuple[str, ...] | None = None
 def upgrade() -> None:
     # -------------------------------------------------------------------------
     # 1. Extend the subject_type enum with the new OAuth value.
-    #    PostgreSQL requires ALTER TYPE … ADD VALUE outside a transaction, but
-    #    Alembic wraps upgrades in a transaction by default.  We use
-    #    execute_if(dialect="postgresql") and issue a plain DDL statement.
+    #    PostgreSQL requires ALTER TYPE … ADD VALUE to run outside a transaction
+    #    on versions < 12. We use an autocommit block to commit the preceding
+    #    (empty) transaction before the DDL so this migration works on all
+    #    supported PostgreSQL versions (12+ in practice, but safe on 11 too).
     # -------------------------------------------------------------------------
-    op.execute(sa.text("ALTER TYPE subject_type ADD VALUE IF NOT EXISTS 'oauth_subject'"))
+    with op.get_context().autocommit_block():
+        op.execute(sa.text("ALTER TYPE subject_type ADD VALUE IF NOT EXISTS 'oauth_subject'"))
 
     # -------------------------------------------------------------------------
     # 2. Remove constraints that reference role_bindings.subject_id so the

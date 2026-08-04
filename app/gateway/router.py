@@ -5,18 +5,17 @@ from __future__ import annotations
 import json
 import time
 from typing import Any
-from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from redis.exceptions import RedisError
 
-from app.auth.api_keys import verify_key
-from app.auth.jwt_validator import verify_jwt
+from app.auth.authenticate import authenticate
 from app.auth.rbac import evaluate_permission
 from app.auth.tool_filter import filter_tools_list
 from app.config import Settings
+from app.constants import DEFAULT_TENANT_ID
 from app.gateway.headers import build_upstream_headers, extract_service_token
 from app.gateway.jsonrpc import (
     FORBIDDEN,
@@ -33,7 +32,7 @@ from app.gateway.jsonrpc import (
     parse_request,
 )
 from app.gateway.proxy import McpProxy, UpstreamError
-from app.limits.policies import _parse_default, resolve_policy
+from app.limits.policies import parse_default, resolve_policy
 from app.limits.pre_auth import check_pre_auth_limit
 from app.limits.redis_bucket import RateLimiter
 from app.models.orm import AuditEventType, ServerAuthMode, ServerStatus
@@ -43,10 +42,6 @@ from app.repositories.rate_limits import RateLimitRepository
 from app.repositories.rbac import RbacRepository
 from app.repositories.servers import ServerRepository
 from app.runtime import Runtime
-
-logger = structlog.get_logger(__name__)
-
-DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 router = APIRouter(tags=["proxy"])
 
@@ -128,7 +123,7 @@ async def mcp_proxy(
     # Step 2: Pre-auth rate limit (by client IP), then authenticate
     # -------------------------------------------------------------------------
     try:
-        pre_auth_limit, pre_auth_window = _parse_default(settings.auth_rate_limit_default)
+        pre_auth_limit, pre_auth_window = parse_default(settings.auth_rate_limit_default)
         pre_auth_result = await check_pre_auth_limit(
             client_ip,
             runtime.redis,
@@ -142,7 +137,9 @@ async def mcp_proxy(
     if not pre_auth_result.allowed:
         headers = _rate_limit_headers(pre_auth_result)
         headers["Retry-After"] = str(int(pre_auth_result.retry_after_seconds))
-        RATE_LIMIT_REJECTIONS.labels(server_slug=server_slug, scope="pre_auth").inc()
+        # Use a fixed label — the slug is unvalidated at this stage and could be
+        # attacker-controlled, which would create unbounded Prometheus cardinality.
+        RATE_LIMIT_REJECTIONS.labels(server_slug="_pre_auth", scope="pre_auth").inc()
         return _json_error(
             request, 429, rpc_id, RATE_LIMITED, "Pre-auth rate limit exceeded", headers
         )
@@ -155,20 +152,7 @@ async def mcp_proxy(
 
     async with runtime.session_factory() as session:
         try:
-            # Dispatch: API keys start with "pk_"; everything else is a JWT.
-            if raw_token.startswith("pk_"):
-                subject = await verify_key(
-                    raw=raw_token,
-                    pepper=settings.api_key_pepper,
-                    session=session,
-                )
-            else:
-                if not settings.jwt_jwks_url:
-                    AUTH_FAILURES.labels(reason="missing_credentials").inc()
-                    return _json_error(
-                        request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials"
-                    )
-                subject = await verify_jwt(raw_token=raw_token, settings=settings)
+            subject = await authenticate(raw_token, settings, session)
         except ValueError:
             AUTH_FAILURES.labels(reason="invalid_credentials").inc()
             await record_event(

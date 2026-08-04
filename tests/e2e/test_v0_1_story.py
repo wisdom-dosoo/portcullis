@@ -304,7 +304,7 @@ class _ProxyPatches:
             verify_mock = AsyncMock(side_effect=self._verify_result)
         else:
             verify_mock = AsyncMock(return_value=self._verify_result)
-        p_vk = patch("app.gateway.router.verify_key", new=verify_mock)
+        p_vk = patch("app.auth.authenticate.verify_key", new=verify_mock)
         self._patches.append(p_vk)
         p_vk.start()
 

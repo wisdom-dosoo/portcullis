@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.limits.policies import EffectivePolicy, _parse_default, resolve_policy
+from app.limits.policies import EffectivePolicy, parse_default, resolve_policy
 from app.models.orm import RateLimitAlgorithm
 
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -44,28 +44,28 @@ def _make_policy(
 
 
 # ---------------------------------------------------------------------------
-# _parse_default
+# parse_default
 # ---------------------------------------------------------------------------
 
 
 class TestParseDefault:
     def test_parse_100_per_minute(self) -> None:
-        count, seconds = _parse_default("100/minute")
+        count, seconds = parse_default("100/minute")
         assert count == 100
         assert seconds == 60
 
     def test_parse_1_per_day(self) -> None:
-        count, seconds = _parse_default("1/day")
+        count, seconds = parse_default("1/day")
         assert count == 1
         assert seconds == 86400
 
     def test_parse_50_per_second(self) -> None:
-        count, seconds = _parse_default("50/second")
+        count, seconds = parse_default("50/second")
         assert count == 50
         assert seconds == 1
 
     def test_parse_200_per_hour(self) -> None:
-        count, seconds = _parse_default("200/hour")
+        count, seconds = parse_default("200/hour")
         assert count == 200
         assert seconds == 3600
 

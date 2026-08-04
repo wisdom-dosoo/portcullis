@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session
-from app.auth.dependencies import authenticated_subject
+from app.auth.dependencies import admin_subject
 from app.auth.subject import Subject
 from app.models.orm import AuditEventType
 from app.models.schemas import AuditLogView
@@ -19,16 +19,15 @@ router = APIRouter(prefix="/v1/audit", tags=["audit"])
 
 @router.get("", response_model=list[AuditLogView])
 async def list_audit_logs(
-    subject: Annotated[Subject, Depends(authenticated_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     event_type: Annotated[AuditEventType | None, Query()] = None,
     server_slug: Annotated[str | None, Query()] = None,
 ) -> list[AuditLogView]:
-    """Return audit log entries for the current tenant.
+    """Return audit log entries for the current tenant. Admin scope required.
 
-    Any authenticated subject may query audit logs.
     Results are ordered by created_at descending (newest first).
     """
     repo = AuditRepository(session)
