@@ -51,7 +51,7 @@ class TestExactMatch:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "github_list_repos", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "github_list_repos", perms)
         assert decision.allowed is True
         assert decision.rule_id is not None
         assert decision.reason == "allowed by rule"
@@ -64,7 +64,7 @@ class TestExactMatch:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "github_create_issue", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "github_create_issue", perms)
         assert decision.allowed is False
         assert decision.rule_id is None
         assert decision.reason == "default deny"
@@ -79,7 +79,7 @@ class TestWildcardServer:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "any-server-slug", "list_files", perms)
+        decision = evaluate_permission(str(uuid4()), "any-server-slug", "list_files", perms)
         assert decision.allowed is True
 
     def test_wildcard_server_does_not_match_wrong_tool(self) -> None:
@@ -90,7 +90,7 @@ class TestWildcardServer:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "any-server-slug", "write_file", perms)
+        decision = evaluate_permission(str(uuid4()), "any-server-slug", "write_file", perms)
         assert decision.allowed is False
         assert decision.rule_id is None
 
@@ -104,7 +104,7 @@ class TestWildcardTool:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "github_list_repos", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "github_list_repos", perms)
         assert decision.allowed is True
 
     def test_prefix_wildcard_does_not_match_other_tool(self) -> None:
@@ -115,7 +115,7 @@ class TestWildcardTool:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "github_create_issue", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "github_create_issue", perms)
         assert decision.allowed is False
 
 
@@ -136,7 +136,7 @@ class TestSpecificityBeatsWildcard:
                 priority=0,
             ),
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "github_list_repos", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "github_list_repos", perms)
         assert decision.allowed is False
         assert decision.reason == "denied by rule"
 
@@ -156,7 +156,7 @@ class TestSpecificityBeatsWildcard:
                 priority=0,
             ),
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "github_list_repos", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "github_list_repos", perms)
         assert decision.allowed is True
         assert decision.reason == "allowed by rule"
 
@@ -178,7 +178,7 @@ class TestPriorityTieBreaking:
             ),
         ]
         # The deny rule has higher priority → it sits at the top tier alone
-        decision = evaluate_permission(uuid4(), "server", "tool", perms)
+        decision = evaluate_permission(str(uuid4()), "server", "tool", perms)
         assert decision.allowed is False
         assert decision.reason == "denied by rule"
 
@@ -198,7 +198,7 @@ class TestPriorityTieBreaking:
             ),
         ]
         # The allow rule has higher priority → it sits at the top tier alone
-        decision = evaluate_permission(uuid4(), "server", "tool", perms)
+        decision = evaluate_permission(str(uuid4()), "server", "tool", perms)
         assert decision.allowed is True
         assert decision.reason == "allowed by rule"
 
@@ -220,7 +220,7 @@ class TestDenyTie:
                 priority=5,
             ),
         ]
-        decision = evaluate_permission(uuid4(), "svc", "op", perms)
+        decision = evaluate_permission(str(uuid4()), "svc", "op", perms)
         assert decision.allowed is False
         assert decision.reason == "denied by rule"
         assert decision.rule_id is not None
@@ -228,7 +228,7 @@ class TestDenyTie:
 
 class TestNoMatchDenial:
     def test_no_permissions_returns_default_deny(self) -> None:
-        decision = evaluate_permission(uuid4(), "some-server", "some-tool", [])
+        decision = evaluate_permission(str(uuid4()), "some-server", "some-tool", [])
         assert decision.allowed is False
         assert decision.rule_id is None
         assert decision.reason == "default deny"
@@ -241,7 +241,7 @@ class TestNoMatchDenial:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "other-server", "any-tool", perms)
+        decision = evaluate_permission(str(uuid4()), "other-server", "any-tool", perms)
         assert decision.allowed is False
         assert decision.rule_id is None
         assert decision.reason == "default deny"
@@ -280,7 +280,7 @@ class TestMultipleRoles:
             effect=PermissionEffect.DENY,
             priority=0,
         )
-        decision = evaluate_permission(uuid4(), "svc", "op", [allow_perm, deny_perm])
+        decision = evaluate_permission(str(uuid4()), "svc", "op", [allow_perm, deny_perm])
         assert decision.allowed is False
 
 
@@ -288,7 +288,7 @@ class TestAdminNonBypass:
     def test_admin_subject_still_subject_to_rbac(self) -> None:
         """Having admin scope does NOT bypass tool RBAC — evaluate_permission is always called."""
         # Even if the caller has admin scope, if no permissions match, default deny applies.
-        decision = evaluate_permission(uuid4(), "any-server", "any-tool", [])
+        decision = evaluate_permission(str(uuid4()), "any-server", "any-tool", [])
         assert decision.allowed is False
         assert decision.reason == "default deny"
 
@@ -300,7 +300,7 @@ class TestAdminNonBypass:
                 effect=PermissionEffect.DENY,
             )
         ]
-        decision = evaluate_permission(uuid4(), "restricted-server", "delete_everything", perms)
+        decision = evaluate_permission(str(uuid4()), "restricted-server", "delete_everything", perms)
         assert decision.allowed is False
         assert decision.reason == "denied by rule"
 
@@ -315,7 +315,7 @@ class TestCaseSensitivity:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "GitHub_mcp", "*", perms)
+        decision = evaluate_permission(str(uuid4()), "GitHub_mcp", "*", perms)
         assert decision.allowed is False
 
     def test_exact_case_match_succeeds(self) -> None:
@@ -326,7 +326,7 @@ class TestCaseSensitivity:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "list_repos", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "list_repos", perms)
         assert decision.allowed is True
 
     def test_case_difference_in_tool_name_no_match(self) -> None:
@@ -337,14 +337,14 @@ class TestCaseSensitivity:
                 effect=PermissionEffect.ALLOW,
             )
         ]
-        decision = evaluate_permission(uuid4(), "github-mcp", "List_Repos", perms)
+        decision = evaluate_permission(str(uuid4()), "github-mcp", "List_Repos", perms)
         assert decision.allowed is False
 
 
 class TestDeterministicOrdering:
     def test_result_is_deterministic_for_same_inputs(self) -> None:
         """Same inputs always produce same output (no randomness in evaluation)."""
-        subject_id = uuid4()
+        subject_id = str(uuid4())
         perms = [
             _perm(
                 server_pattern="svc", tool_pattern="op", effect=PermissionEffect.ALLOW, priority=5
@@ -364,7 +364,7 @@ class TestDeterministicOrdering:
 @given(server=st.text(min_size=1), tool=st.text(min_size=1))
 def test_no_rules_always_denies(server: str, tool: str) -> None:
     """With no permissions, any server+tool combination must be denied."""
-    decision = evaluate_permission(uuid4(), server, tool, [])
+    decision = evaluate_permission(str(uuid4()), server, tool, [])
     assert not decision.allowed
     assert decision.rule_id is None
     assert decision.reason == "default deny"
@@ -396,7 +396,7 @@ def test_deny_beats_allow_at_same_rank(server: str, tool: str, priority: int) ->
         effect=PermissionEffect.DENY,
         priority=priority,
     )
-    decision = evaluate_permission(uuid4(), server, tool, [allow_perm, deny_perm])
+    decision = evaluate_permission(str(uuid4()), server, tool, [allow_perm, deny_perm])
     assert not decision.allowed
     assert decision.reason == "denied by rule"
     assert decision.rule_id is not None

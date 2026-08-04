@@ -26,7 +26,8 @@ NOW = datetime.now(UTC)
 
 def _make_admin_subject() -> Subject:
     return Subject(
-        key_id=uuid4(),
+        subject_id=str(uuid4()),
+        subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
         scopes=frozenset(["admin"]),
     )
@@ -34,7 +35,8 @@ def _make_admin_subject() -> Subject:
 
 def _make_non_admin_subject() -> Subject:
     return Subject(
-        key_id=uuid4(),
+        subject_id=str(uuid4()),
+        subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
         scopes=frozenset([]),
     )
@@ -83,7 +85,8 @@ def _make_fake_binding(
     obj.id = binding_id or uuid4()
     obj.role_id = role_id or uuid4()
     obj.subject_type = SubjectType.API_KEY
-    obj.subject_id = subject_id or uuid4()
+    # subject_id is TEXT in v0.2 — store as string so RoleBindingView validates
+    obj.subject_id = str(subject_id or uuid4())
     obj.created_at = NOW
     return obj
 

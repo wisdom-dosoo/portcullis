@@ -62,7 +62,11 @@ async def create_binding(
     role = await repo.get_role(tenant_id=subject.tenant_id, role_id=role_id)
     if role is None:
         raise HTTPException(status_code=404, detail="Role not found")
-    binding = await repo.create_binding(role_id=role_id, subject_id=body.subject_id)
+    binding = await repo.create_binding(
+        role_id=role_id,
+        subject_id=body.subject_id,
+        subject_type=body.subject_type,
+    )
     await session.commit()
     return RoleBindingView.model_validate(binding)
 

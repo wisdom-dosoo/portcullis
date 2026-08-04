@@ -25,16 +25,22 @@ NOW = datetime.now(UTC)
 
 
 def _make_admin_subject() -> Subject:
+    from app.models.orm import SubjectType
+
     return Subject(
-        key_id=uuid4(),
+        subject_id=str(uuid4()),
+        subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
         scopes=frozenset(["admin"]),
     )
 
 
 def _make_non_admin_subject() -> Subject:
+    from app.models.orm import SubjectType
+
     return Subject(
-        key_id=uuid4(),
+        subject_id=str(uuid4()),
+        subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
         scopes=frozenset([]),
     )

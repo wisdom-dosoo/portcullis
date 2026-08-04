@@ -26,8 +26,11 @@ KEY_ID = UUID("00000000-0000-0000-0000-000000000042")
 
 
 def _make_subject(scopes: list[str] | None = None) -> Subject:
+    from app.models.orm import SubjectType
+
     return Subject(
-        key_id=uuid4(),
+        subject_id=str(uuid4()),
+        subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
         scopes=frozenset(scopes or ["admin"]),
     )

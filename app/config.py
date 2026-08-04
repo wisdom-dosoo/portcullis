@@ -50,6 +50,19 @@ class Settings(BaseSettings):
     rate_limit_default: str = "100/minute"
     auth_rate_limit_default: str = "20/minute"
 
+    # OAuth 2.1 / JWKS — all optional; JWT auth is disabled when jwks_url is unset
+    jwt_jwks_url: str | None = None
+    jwt_issuer: str | None = None
+    jwt_audience: str = "portcullis"
+    jwt_jwks_cache_ttl_seconds: PositiveInt = 300
+
+    # OpenTelemetry — disabled when endpoint is unset
+    otel_endpoint: str | None = None
+    otel_service_name: str = "portcullis"
+
+    # Prometheus metrics endpoint
+    metrics_enabled: bool = True
+
     @field_validator("cors_allowed_origins", "upstream_allowed_hosts", mode="before")
     @classmethod
     def parse_csv_tuple(cls, value: object) -> object:

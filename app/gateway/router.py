@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from redis.exceptions import RedisError
 
 from app.auth.api_keys import verify_key
+from app.auth.jwt_validator import verify_jwt
 from app.auth.rbac import evaluate_permission
 from app.auth.tool_filter import filter_tools_list
 from app.config import Settings
@@ -34,7 +36,9 @@ from app.gateway.proxy import McpProxy, UpstreamError
 from app.limits.policies import _parse_default, resolve_policy
 from app.limits.pre_auth import check_pre_auth_limit
 from app.limits.redis_bucket import RateLimiter
-from app.models.orm import ServerAuthMode, ServerStatus
+from app.models.orm import AuditEventType, ServerAuthMode, ServerStatus
+from app.observability.audit import record_event
+from app.observability.metrics import AUTH_FAILURES, RATE_LIMIT_REJECTIONS, RBAC_DENIALS
 from app.repositories.rate_limits import RateLimitRepository
 from app.repositories.rbac import RbacRepository
 from app.repositories.servers import ServerRepository
@@ -90,6 +94,8 @@ async def mcp_proxy(
     settings: Settings = get_settings()
 
     request_id = getattr(request.state, "request_id", None)
+    client_ip = getattr(request.client, "host", "unknown") if request.client else "unknown"
+    start_time = time.perf_counter()
 
     # -------------------------------------------------------------------------
     # Step 1: Parse and validate JSON-RPC body
@@ -99,7 +105,6 @@ async def mcp_proxy(
         rpc_request: JsonRpcRequest = parse_request(body)
     except ValueError as exc:
         msg = str(exc)
-        # Detect error code from embedded hint
         if f"code={PARSE_ERROR}" in msg:
             code = PARSE_ERROR
             http_status = 400
@@ -122,8 +127,6 @@ async def mcp_proxy(
     # -------------------------------------------------------------------------
     # Step 2: Pre-auth rate limit (by client IP), then authenticate
     # -------------------------------------------------------------------------
-    client_ip = getattr(request.client, "host", "unknown") if request.client else "unknown"
-
     try:
         pre_auth_limit, pre_auth_window = _parse_default(settings.auth_rate_limit_default)
         pre_auth_result = await check_pre_auth_limit(
@@ -139,24 +142,45 @@ async def mcp_proxy(
     if not pre_auth_result.allowed:
         headers = _rate_limit_headers(pre_auth_result)
         headers["Retry-After"] = str(int(pre_auth_result.retry_after_seconds))
+        RATE_LIMIT_REJECTIONS.labels(server_slug=server_slug, scope="pre_auth").inc()
         return _json_error(
             request, 429, rpc_id, RATE_LIMITED, "Pre-auth rate limit exceeded", headers
         )
 
     authorization = request.headers.get("authorization", "")
-    raw_key = authorization.removeprefix("Bearer ").strip()
-    if not raw_key:
-        return _json_error(request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing API key")
+    raw_token = authorization.removeprefix("Bearer ").strip()
+    if not raw_token:
+        AUTH_FAILURES.labels(reason="missing_credentials").inc()
+        return _json_error(request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
 
     async with runtime.session_factory() as session:
         try:
-            subject = await verify_key(
-                raw=raw_key,
-                pepper=settings.api_key_pepper,
-                session=session,
-            )
+            # Dispatch: API keys start with "pk_"; everything else is a JWT.
+            if raw_token.startswith("pk_"):
+                subject = await verify_key(
+                    raw=raw_token,
+                    pepper=settings.api_key_pepper,
+                    session=session,
+                )
+            else:
+                if not settings.jwt_jwks_url:
+                    AUTH_FAILURES.labels(reason="missing_credentials").inc()
+                    return _json_error(
+                        request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials"
+                    )
+                subject = await verify_jwt(raw_token=raw_token, settings=settings)
         except ValueError:
-            return _json_error(request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing API key")
+            AUTH_FAILURES.labels(reason="invalid_credentials").inc()
+            await record_event(
+                runtime.session_factory,
+                event_type=AuditEventType.AUTH_FAILURE,
+                outcome="denied",
+                server_slug=server_slug,
+                client_ip=client_ip,
+                request_id=request_id,
+                detail={"rpc_id": str(rpc_id)},
+            )
+            return _json_error(request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
 
         try:
             # -------------------------------------------------------------------------
@@ -206,9 +230,24 @@ async def mcp_proxy(
                     )
 
                 rbac_repo = RbacRepository(session)
-                permissions = await rbac_repo.get_permissions_for_subject(subject.key_id)
-                decision = evaluate_permission(subject.key_id, server_slug, tool_name, permissions)
+                permissions = await rbac_repo.get_permissions_for_subject(subject.subject_id)
+                decision = evaluate_permission(subject.subject_id, server_slug, tool_name, permissions)
                 if not decision.allowed:
+                    RBAC_DENIALS.labels(server_slug=server_slug).inc()
+                    await record_event(
+                        runtime.session_factory,
+                        event_type=AuditEventType.RBAC_DENY,
+                        outcome="denied",
+                        tenant_id=subject.tenant_id,
+                        subject_id=subject.subject_id,
+                        subject_type=subject.subject_type,
+                        server_slug=server_slug,
+                        tool_name=tool_name,
+                        rpc_method=method,
+                        client_ip=client_ip,
+                        request_id=request_id,
+                        detail={"rule_id": str(decision.rule_id), "reason": decision.reason},
+                    )
                     return _json_error(
                         request, 403, rpc_id, FORBIDDEN, f"Tool '{tool_name}' is not permitted"
                     )
@@ -219,7 +258,7 @@ async def mcp_proxy(
             rl_repo = RateLimitRepository(session)
             policies = await rl_repo.list(DEFAULT_TENANT_ID)
             policy = resolve_policy(
-                subject.key_id,
+                subject.subject_id,
                 server_slug,
                 tool_name or method,
                 policies,
@@ -230,7 +269,7 @@ async def mcp_proxy(
                 limiter = RateLimiter(runtime.redis)
                 rl_result = await limiter.check(
                     tenant_id=DEFAULT_TENANT_ID,
-                    subject_id=subject.key_id,
+                    subject_id=subject.subject_id,
                     server_slug=server_slug,
                     tool_or_method=tool_name or method,
                     policy=policy,
@@ -246,6 +285,7 @@ async def mcp_proxy(
             if not rl_result.allowed:
                 retry_headers = dict(rl_headers)
                 retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
+                RATE_LIMIT_REJECTIONS.labels(server_slug=server_slug, scope="per_subject").inc()
                 return _json_error(
                     request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers
                 )
@@ -306,7 +346,6 @@ async def mcp_proxy(
                 try:
                     response_body: dict[str, Any] = json.loads(raw_body)
                 except (json.JSONDecodeError, ValueError):
-                    # Cannot parse — pass through as-is
                     return Response(
                         content=raw_body,
                         status_code=upstream_response.status_code,
@@ -335,7 +374,27 @@ async def mcp_proxy(
                     media_type=content_type,
                 )
 
-            # Default: buffer and return
+            # Default: buffer and return. Audit tool calls on success.
+            if method == "tools/call" and upstream_response.status_code < 500:
+                latency_ms = int((time.perf_counter() - start_time) * 1000)
+                await record_event(
+                    runtime.session_factory,
+                    event_type=AuditEventType.TOOL_CALL,
+                    outcome="allowed",
+                    tenant_id=subject.tenant_id,
+                    subject_id=subject.subject_id,
+                    subject_type=subject.subject_type,
+                    server_slug=server_slug,
+                    tool_name=tool_name,
+                    rpc_method=method,
+                    client_ip=client_ip,
+                    request_id=request_id,
+                    detail={
+                        "upstream_status": upstream_response.status_code,
+                        "latency_ms": latency_ms,
+                    },
+                )
+
             return Response(
                 content=upstream_response.content,
                 status_code=upstream_response.status_code,

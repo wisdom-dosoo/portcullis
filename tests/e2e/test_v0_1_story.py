@@ -67,12 +67,14 @@ CLIENT_KEY_PLAINTEXT = "pk_clientpr_clientsecretsecretsecretsecretaaa"
 
 # Subjects
 ADMIN_SUBJECT = Subject(
-    key_id=ADMIN_KEY_ID,
+    subject_id=str(ADMIN_KEY_ID),
+    subject_type=SubjectType.API_KEY,
     tenant_id=TENANT_ID,
     scopes=frozenset(["admin"]),
 )
 CLIENT_SUBJECT = Subject(
-    key_id=CLIENT_KEY_ID,
+    subject_id=str(CLIENT_KEY_ID),
+    subject_type=SubjectType.API_KEY,
     tenant_id=TENANT_ID,
     scopes=frozenset(),
 )
@@ -129,7 +131,7 @@ def _make_binding_orm() -> MagicMock:
     b.id = BINDING_ID
     b.role_id = ROLE_ID
     b.subject_type = SubjectType.API_KEY
-    b.subject_id = CLIENT_KEY_ID
+    b.subject_id = str(CLIENT_KEY_ID)
     b.created_at = NOW
     return b
 
@@ -372,7 +374,7 @@ class _ProxyPatches:
             allowed = [
                 t
                 for t in tools
-                if evaluate_permission(subject.key_id, server_slug, t["name"], perms).allowed
+                if evaluate_permission(subject.subject_id, server_slug, t["name"], perms).allowed
             ]
             new_resp = copy.deepcopy(response_body)
             new_resp["result"]["tools"] = allowed

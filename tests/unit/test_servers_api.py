@@ -64,8 +64,11 @@ def _make_app_with_mock_runtime() -> tuple[FastAPI, MagicMock]:
     app.state.monitor = mock_monitor
 
     # Override auth dependencies so routes don't require a real API key
+    from app.models.orm import SubjectType
+
     fake_subject = Subject(
-        key_id=SERVER_ID,
+        subject_id=str(SERVER_ID),
+        subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
         scopes=frozenset(["admin"]),
     )

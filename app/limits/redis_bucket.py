@@ -100,7 +100,7 @@ class RateLimitResult:
 
 def build_key(
     tenant_id: UUID,
-    subject_id: UUID,
+    subject_id: str,
     server_slug: str,
     tool_or_method: str,
 ) -> str:
@@ -192,7 +192,7 @@ class RateLimiter:
     async def check(
         self,
         tenant_id: UUID,
-        subject_id: UUID,
+        subject_id: str,
         server_slug: str,
         tool_or_method: str,
         policy: EffectivePolicy,

@@ -6,7 +6,7 @@ import fnmatch
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.models.orm import PermissionEffect, ToolPermission
+from app.models.orm import PermissionEffect, ToolPermission  # noqa: F401 (UUID kept for PermissionDecision)
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ def _pattern_specificity(pattern: str) -> int:
 
 
 def evaluate_permission(
-    subject_id: UUID,
+    subject_id: str,
     server_slug: str,
     tool_name: str,
     permissions: list[ToolPermission],

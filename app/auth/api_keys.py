@@ -11,6 +11,7 @@ from argon2.exceptions import VerificationError, VerifyMismatchError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.subject import IssuedKey, Subject
+from app.models.orm import SubjectType
 from app.repositories.api_keys import ApiKeyRepository
 
 # Key format: pk_{8-char prefix}_{43-char secret}
@@ -123,7 +124,8 @@ async def verify_key(
         raise ValueError("invalid API key")
 
     subject = Subject(
-        key_id=api_key.id,
+        subject_id=str(api_key.id),
+        subject_type=SubjectType.API_KEY,
         tenant_id=api_key.tenant_id,
         scopes=frozenset(api_key.scopes),
     )

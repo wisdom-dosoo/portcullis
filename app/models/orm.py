@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     MetaData,
     String,
     Text,
@@ -57,6 +58,7 @@ class ApiKeyScope(StrEnum):
 
 class SubjectType(StrEnum):
     API_KEY = "api_key"
+    OAUTH_SUBJECT = "oauth_subject"
 
 
 class PermissionEffect(StrEnum):
@@ -215,9 +217,10 @@ class RoleBinding(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
         nullable=False,
         default=SubjectType.API_KEY,
     )
-    subject_id: Mapped[UUID] = mapped_column(
-        Uuid,
-        ForeignKey("api_keys.id", ondelete="CASCADE"),
+    # TEXT (not UUID FK) so both API-key UUIDs and OAuth sub claims can be stored.
+    # The FK to api_keys.id was dropped in migration 0002.
+    subject_id: Mapped[str] = mapped_column(
+        Text,
         nullable=False,
         index=True,
     )
@@ -244,6 +247,52 @@ class ToolPermission(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
         nullable=False,
     )
     priority: Mapped[int] = mapped_column(nullable=False, default=0)
+
+
+class AuditEventType(StrEnum):
+    AUTH_FAILURE = "auth_failure"
+    RBAC_DENY = "rbac_deny"
+    TOOL_CALL = "tool_call"
+
+
+class AuditLog(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable audit record written for every significant gateway event."""
+
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        # Primary query pattern: per-tenant reverse-chronological listing.
+        Index("ix_audit_logs_tenant_created", "tenant_id", "created_at"),
+    )
+
+    tenant_id: Mapped[UUID | None] = mapped_column(Uuid)
+    subject_id: Mapped[str | None] = mapped_column(String(500))
+    subject_type: Mapped[SubjectType | None] = mapped_column(
+        SqlEnum(
+            SubjectType,
+            name="subject_type",
+            values_callable=_enum_values,
+            validate_strings=True,
+            create_constraint=False,  # reuse existing DB enum
+        )
+    )
+    event_type: Mapped[AuditEventType] = mapped_column(
+        SqlEnum(
+            AuditEventType,
+            name="audit_event_type",
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    server_slug: Mapped[str | None] = mapped_column(String(200))
+    tool_name: Mapped[str | None] = mapped_column(String(500))
+    rpc_method: Mapped[str | None] = mapped_column(String(200))
+    # "allowed" | "denied" | "error"
+    outcome: Mapped[str] = mapped_column(String(50), nullable=False)
+    client_ip: Mapped[str | None] = mapped_column(String(100))
+    request_id: Mapped[str | None] = mapped_column(String(100))
+    # Catch-all structured blob for event-specific extra context.
+    detail: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class RateLimitPolicy(UuidPrimaryKeyMixin, TimestampMixin, Base):

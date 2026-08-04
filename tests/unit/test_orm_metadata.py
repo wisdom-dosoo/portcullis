@@ -1,4 +1,4 @@
-"""Persistence metadata contract for the v0.1 control plane."""
+"""Persistence metadata contract for the Portcullis control plane."""
 
 from collections.abc import Iterable
 
@@ -16,6 +16,7 @@ EXPECTED_TABLES = {
     "role_bindings",
     "tool_permissions",
     "rate_limit_policies",
+    "audit_logs",
 }
 
 
@@ -45,7 +46,7 @@ def _check_sql(table: Table) -> Iterable[str]:
     )
 
 
-def test_metadata_contains_complete_v0_1_schema() -> None:
+def test_metadata_contains_complete_schema() -> None:
     assert set(orm.Base.metadata.tables) == EXPECTED_TABLES
 
 
@@ -76,8 +77,9 @@ def test_api_key_and_role_identity_constraints() -> None:
     assert frozenset(("key_prefix",)) in _unique_column_sets(api_keys)
     assert frozenset(("tenant_id", "name")) in _unique_column_sets(roles)
     assert _foreign_key_targets(bindings, "role_id") == {"roles.id"}
-    assert _foreign_key_targets(bindings, "subject_id") == {"api_keys.id"}
-    assert _enum_values(bindings, "subject_type") == ("api_key",)
+    # subject_id is TEXT (no FK) since v0.2 — supports both UUID and OAuth sub claims
+    assert not _foreign_key_targets(bindings, "subject_id")
+    assert _enum_values(bindings, "subject_type") == ("api_key", "oauth_subject")
     assert frozenset(("role_id", "subject_type", "subject_id")) in _unique_column_sets(bindings)
 
 

@@ -9,11 +9,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.orm import (
+    AuditEventType,
     PermissionEffect,
     RateLimitAlgorithm,
     ServerAuthMode,
     ServerStatus,
     ServerTransport,
+    SubjectType,
 )
 
 _SLUG_ALLOWED = re.compile(r"^[a-z0-9-]+$")
@@ -127,9 +129,14 @@ class RoleView(BaseModel):
 
 
 class RoleBindingCreate(BaseModel):
-    """Schema for binding a subject (API key) to a role."""
+    """Schema for binding a subject to a role.
 
-    subject_id: UUID
+    Use ``subject_type=api_key`` (default) with a UUID string for API keys,
+    or ``subject_type=oauth_subject`` with a JWT ``sub`` claim string.
+    """
+
+    subject_id: str
+    subject_type: SubjectType = SubjectType.API_KEY
 
 
 class RoleBindingView(BaseModel):
@@ -139,8 +146,8 @@ class RoleBindingView(BaseModel):
 
     id: UUID
     role_id: UUID
-    subject_type: str
-    subject_id: UUID
+    subject_type: SubjectType
+    subject_id: str
     created_at: datetime
 
 
@@ -225,3 +232,23 @@ class RateLimitPolicyView(BaseModel):
     priority: int
     created_at: datetime
     updated_at: datetime
+
+
+class AuditLogView(BaseModel):
+    """Response schema for a single audit log entry."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID | None
+    subject_id: str | None
+    subject_type: SubjectType | None
+    event_type: AuditEventType
+    server_slug: str | None
+    tool_name: str | None
+    rpc_method: str | None
+    outcome: str
+    client_ip: str | None
+    request_id: str | None
+    detail: dict
+    created_at: datetime

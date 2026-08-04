@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import fnmatch
 from dataclasses import dataclass
-from uuid import UUID
 
 from app.auth.rbac import _pattern_specificity
 from app.models.orm import RateLimitAlgorithm, RateLimitPolicy
@@ -57,13 +56,16 @@ def _selector_level(policy: RateLimitPolicy) -> int:
 
 def _policy_matches(
     policy: RateLimitPolicy,
-    subject_id: UUID | None,
+    subject_id: str | None,
     server_slug: str | None,
     tool_name: str | None,
 ) -> bool:
     """Return True if the policy applies to the given request context."""
-    # Subject must match if policy is subject-scoped
-    if policy.subject_id is not None and (subject_id is None or policy.subject_id != subject_id):
+    # Subject must match if policy is subject-scoped.
+    # policy.subject_id is a UUID (DB column); compare as strings for uniformity.
+    if policy.subject_id is not None and (
+        subject_id is None or str(policy.subject_id) != str(subject_id)
+    ):
         return False
 
     # Server pattern must match if policy specifies one
@@ -84,7 +86,7 @@ def _policy_matches(
 
 
 def resolve_policy(
-    subject_id: UUID | None,
+    subject_id: str | None,
     server_slug: str | None,
     tool_name: str | None,
     policies: list[RateLimitPolicy],

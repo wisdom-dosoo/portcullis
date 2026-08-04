@@ -53,11 +53,16 @@ class RbacRepository:
     # Role bindings
     # ------------------------------------------------------------------
 
-    async def create_binding(self, role_id: UUID, subject_id: UUID) -> RoleBinding:
-        """Bind an API key (subject) to a role."""
+    async def create_binding(
+        self,
+        role_id: UUID,
+        subject_id: str,
+        subject_type: SubjectType = SubjectType.API_KEY,
+    ) -> RoleBinding:
+        """Bind a subject (API key or OAuth) to a role."""
         binding = RoleBinding(
             role_id=role_id,
-            subject_type=SubjectType.API_KEY,
+            subject_type=subject_type,
             subject_id=subject_id,
         )
         self._session.add(binding)
@@ -108,13 +113,11 @@ class RbacRepository:
         )
         return cursor.rowcount > 0
 
-    async def get_permissions_for_subject(self, subject_id: UUID) -> list[ToolPermission]:
-        """Return all tool permissions that apply to the given API key subject.
+    async def get_permissions_for_subject(self, subject_id: str) -> list[ToolPermission]:
+        """Return all tool permissions that apply to the given subject.
 
-        Join chain:
-        ``api_keys.id → role_bindings.subject_id → roles.id → tool_permissions.role_id``
-
-        Only bindings with ``subject_type == 'api_key'`` are considered.
+        Works for both API-key subjects (UUID as string) and OAuth subjects
+        (JWT sub claim).  The join matches on the TEXT subject_id column.
         """
         result = await self._session.scalars(
             select(ToolPermission)
@@ -122,8 +125,7 @@ class RbacRepository:
             .join(
                 RoleBinding,
                 (RoleBinding.role_id == Role.id)
-                & (RoleBinding.subject_id == subject_id)
-                & (RoleBinding.subject_type == SubjectType.API_KEY),
+                & (RoleBinding.subject_id == subject_id),
             )
         )
         return list(result.all())

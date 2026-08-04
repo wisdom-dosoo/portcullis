@@ -19,9 +19,12 @@ from app.models.orm import PermissionEffect, ToolPermission
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
-def _make_subject(key_id: UUID | None = None) -> Subject:
+def _make_subject(subject_id: str | None = None) -> Subject:
+    from app.models.orm import SubjectType
+
     return Subject(
-        key_id=key_id or uuid4(),
+        subject_id=subject_id or str(uuid4()),
+        subject_type=SubjectType.API_KEY,
         tenant_id=DEFAULT_TENANT_ID,
         scopes=frozenset(["admin"]),
     )

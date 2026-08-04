@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import traceback
 import uuid
 from collections.abc import AsyncIterator
@@ -10,13 +11,15 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response as PlainResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
 
 from app.api.health import router as health_router
 from app.config import get_settings
 from app.gateway.health_monitor import HealthMonitor
+from app.observability.metrics import REQUEST_DURATION, REQUESTS_TOTAL, metrics_response
+from app.observability.otel import configure_otel, shutdown_otel
 from app.runtime import Runtime
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +29,11 @@ logger = structlog.get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Build and tear down the process-wide Runtime around the server lifetime."""
     settings = get_settings()
+
+    # Initialise OpenTelemetry before anything else so auto-instrumentation
+    # is active for the full lifetime of the process.
+    otel_provider = configure_otel(settings)
+
     runtime = Runtime.build(settings)
     app.state.runtime = runtime
 
@@ -40,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await monitor.stop()
         await monitor_task
         await runtime.close()
+        shutdown_otel(otel_provider)
         logger.info("app.shutdown")
 
 
@@ -54,6 +63,45 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request_id
         response = await call_next(request)
         response.headers["X-Request-Id"] = request_id
+        return response
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Record per-request Prometheus latency and count metrics.
+
+    Only instruments non-metrics paths to avoid recursion and noise.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        super().__init__(app)
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path == "/metrics":
+            return await call_next(request)
+
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration = time.perf_counter() - start
+
+        # Extract server_slug from MCP proxy paths; use route path otherwise.
+        path = request.url.path
+        if path.startswith("/mcp/"):
+            server_slug = path.removeprefix("/mcp/").split("/")[0] or "unknown"
+            method_label = "proxy"
+        else:
+            server_slug = "control_plane"
+            method_label = request.method.lower()
+
+        REQUESTS_TOTAL.labels(
+            server_slug=server_slug,
+            method=method_label,
+            status_code=str(response.status_code),
+        ).inc()
+        REQUEST_DURATION.labels(
+            server_slug=server_slug,
+            method=method_label,
+        ).observe(duration)
+
         return response
 
 
@@ -73,11 +121,12 @@ def create_app() -> FastAPI:
 
     application = FastAPI(
         title="Portcullis",
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
         default_response_class=JSONResponse,
     )
 
+    application.add_middleware(MetricsMiddleware)
     application.add_middleware(RequestIdMiddleware)
     application.include_router(health_router)
 
@@ -97,15 +146,40 @@ def create_app() -> FastAPI:
 
     application.include_router(rate_limits_router)
 
+    from app.api.audit import router as audit_router
+
+    application.include_router(audit_router)
+
     from app.gateway.router import router as proxy_router
 
     application.include_router(proxy_router)
+
+    settings = get_settings()
+
+    if settings.metrics_enabled:
+
+        @application.get("/metrics", include_in_schema=False)
+        async def prometheus_metrics() -> PlainResponse:
+            """Expose Prometheus metrics for scraping."""
+            body, content_type = metrics_response()
+            return PlainResponse(content=body, media_type=content_type)
 
     @application.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         logger.error("unhandled_exception", path=request.url.path, error=str(exc), traceback=tb)
-        return JSONResponse(status_code=500, content={"detail": f"UNHANDLED: {type(exc).__name__}: {exc}"})
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"UNHANDLED: {type(exc).__name__}: {exc}"},
+        )
+
+    # Wire FastAPI auto-instrumentation after the app and all routers are set up.
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(application)
+    except ImportError:
+        pass  # OTel not available — graceful degradation
 
     return application
 

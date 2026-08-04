@@ -10,7 +10,7 @@ from argon2 import PasswordHasher
 
 from app.auth.api_keys import issue_key, parse_key, revoke_key, verify_key
 from app.auth.subject import IssuedKey, Subject
-from app.models.orm import ApiKey
+from app.models.orm import ApiKey, SubjectType
 
 # Low-cost PasswordHasher for unit tests — avoids slow Argon2 tuning.
 _FAST_PH = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
@@ -271,18 +271,16 @@ class TestVerifyKey:
 
         session = _make_mock_session()
 
-        with (
-            patch(
-                "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
-                new_callable=AsyncMock,
-                return_value=fake_orm,
-            ),
-            patch("app.auth.api_keys.asyncio.create_task"),
+        with patch(
+            "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
+            new_callable=AsyncMock,
+            return_value=fake_orm,
         ):
             result = await verify_key(raw=raw, pepper=PEPPER, session=session, ph=_FAST_PH)
 
         assert isinstance(result, Subject)
-        assert result.key_id == fake_orm.id
+        assert result.subject_id == str(fake_orm.id)
+        assert result.subject_type == SubjectType.API_KEY
         assert result.tenant_id == TENANT_ID
 
     @pytest.mark.asyncio
@@ -335,13 +333,10 @@ class TestVerifyKey:
 
         session = _make_mock_session()
 
-        with (
-            patch(
-                "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
-                new_callable=AsyncMock,
-                return_value=fake_orm,
-            ),
-            patch("app.auth.api_keys.asyncio.create_task"),
+        with patch(
+            "app.auth.api_keys.ApiKeyRepository.get_by_prefix",
+            new_callable=AsyncMock,
+            return_value=fake_orm,
         ):
             result = await verify_key(raw=raw, pepper=PEPPER, session=session, ph=_FAST_PH)
 
@@ -356,7 +351,8 @@ class TestVerifyKey:
 class TestSubjectHasScope:
     def test_has_scope_true_for_held_scope(self) -> None:
         subject = Subject(
-            key_id=uuid4(),
+            subject_id=str(uuid4()),
+            subject_type=SubjectType.API_KEY,
             tenant_id=TENANT_ID,
             scopes=frozenset(["admin"]),
         )
@@ -364,7 +360,8 @@ class TestSubjectHasScope:
 
     def test_has_scope_false_for_missing_scope(self) -> None:
         subject = Subject(
-            key_id=uuid4(),
+            subject_id=str(uuid4()),
+            subject_type=SubjectType.API_KEY,
             tenant_id=TENANT_ID,
             scopes=frozenset(["read"]),
         )
@@ -372,7 +369,8 @@ class TestSubjectHasScope:
 
     def test_has_scope_false_for_empty_scopes(self) -> None:
         subject = Subject(
-            key_id=uuid4(),
+            subject_id=str(uuid4()),
+            subject_type=SubjectType.API_KEY,
             tenant_id=TENANT_ID,
             scopes=frozenset(),
         )

@@ -5,12 +5,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.models.orm import SubjectType
+
 
 @dataclass(frozen=True)
 class Subject:
-    """Authenticated principal carrying identity and authorisation scopes."""
+    """Authenticated principal carrying identity and authorisation scopes.
 
-    key_id: UUID
+    ``subject_id`` is a stable string identifier:
+    - For API-key subjects: the string representation of the api_keys.id UUID.
+    - For OAuth subjects: the ``sub`` claim from the verified JWT.
+    """
+
+    subject_id: str
+    subject_type: SubjectType
     tenant_id: UUID
     scopes: frozenset[str]
 

@@ -33,13 +33,13 @@ async def filter_tools_list(
         return copy.deepcopy(response_body)
 
     repo = RbacRepository(session)
-    permissions = await repo.get_permissions_for_subject(subject.key_id)
+    permissions = await repo.get_permissions_for_subject(subject.subject_id)
 
     tools = result_key["tools"]
     allowed_tools = [
         tool
         for tool in tools
-        if evaluate_permission(subject.key_id, server_slug, tool["name"], permissions).allowed
+        if evaluate_permission(subject.subject_id, server_slug, tool["name"], permissions).allowed
     ]
 
     # Build a new response dict — deep copy everything, then replace the tools list.

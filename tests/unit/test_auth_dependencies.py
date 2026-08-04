@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.auth.dependencies import admin_subject, authenticated_subject, current_subject
 from app.auth.subject import Subject
+from app.models.orm import SubjectType
 
 TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 PEPPER = "development-only-change-me"
@@ -17,7 +18,8 @@ PEPPER = "development-only-change-me"
 
 def _make_subject(scopes: list[str] | None = None) -> Subject:
     return Subject(
-        key_id=uuid4(),
+        subject_id=str(uuid4()),
+        subject_type=SubjectType.API_KEY,
         tenant_id=TENANT_ID,
         scopes=frozenset(scopes or []),
     )
@@ -48,7 +50,7 @@ class TestCurrentSubject:
             await current_subject(authorization="", session=session, settings=settings)
 
         assert exc_info.value.status_code == 401
-        assert exc_info.value.detail == "Invalid or missing API key"
+        assert exc_info.value.detail == "Invalid or missing credentials"
 
     @pytest.mark.asyncio
     async def test_bearer_only_raises_401(self) -> None:
@@ -77,7 +79,7 @@ class TestCurrentSubject:
                 )
 
         assert exc_info.value.status_code == 401
-        assert exc_info.value.detail == "Invalid or missing API key"
+        assert exc_info.value.detail == "Invalid or missing credentials"
 
     @pytest.mark.asyncio
     async def test_valid_key_returns_subject(self) -> None:
@@ -99,7 +101,7 @@ class TestCurrentSubject:
             raw="pk_abcdefgh_" + "a" * 43,
             pepper=PEPPER,
             session=session,
-        )
+        )  # API key path dispatches to verify_key
 
     @pytest.mark.asyncio
     async def test_non_bearer_scheme_raises_401(self) -> None:
@@ -135,7 +137,7 @@ class TestCurrentSubject:
                     settings=settings,
                 )
 
-        assert exc_info.value.detail == "Invalid or missing API key"
+        assert exc_info.value.detail == "Invalid or missing credentials"
 
 
 # ---------------------------------------------------------------------------
