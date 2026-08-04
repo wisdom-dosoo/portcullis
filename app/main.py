@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
@@ -99,6 +100,12 @@ def create_app() -> FastAPI:
     from app.gateway.router import router as proxy_router
 
     application.include_router(proxy_router)
+
+    @application.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("unhandled_exception", path=request.url.path, error=str(exc), traceback=tb)
+        return JSONResponse(status_code=500, content={"detail": f"UNHANDLED: {type(exc).__name__}: {exc}"})
 
     return application
 

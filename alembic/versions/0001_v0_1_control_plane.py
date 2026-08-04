@@ -291,10 +291,10 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             "INSERT INTO tenants (id, name, slug, created_at) "
-            "VALUES (:id, :name, :slug, NOW()) "
+            "VALUES (CAST(:id AS UUID), :name, :slug, NOW()) "
             "ON CONFLICT (slug) DO NOTHING"
         ).bindparams(
-            id=DEFAULT_TENANT_ID,
+            id=str(DEFAULT_TENANT_ID),
             name=DEFAULT_TENANT_NAME,
             slug=DEFAULT_TENANT_SLUG,
         )

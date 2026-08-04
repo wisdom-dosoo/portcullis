@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -92,7 +92,10 @@ class TimestampMixin(CreatedAtMixin):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=func.now(),
+        # Client-side onupdate avoids the MissingGreenlet error: after a server-side
+        # func.now() the attribute is expired and requires an async refresh before
+        # Pydantic can serialize it.  A Python lambda keeps the value in memory.
+        onupdate=lambda: datetime.now(UTC),
     )
 
 

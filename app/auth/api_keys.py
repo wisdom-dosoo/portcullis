@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import secrets
 from uuid import UUID
@@ -129,8 +128,10 @@ async def verify_key(
         scopes=frozenset(api_key.scopes),
     )
 
-    # Fire-and-forget: update last_used_at without blocking the caller.
-    asyncio.create_task(repo.update_last_used(api_key.id))
+    # Update last_used_at sequentially — sharing the session with create_task
+    # causes concurrent asyncpg operations on the same connection, which
+    # raises InterfaceError.  The extra ~1 ms is negligible next to Argon2.
+    await repo.update_last_used(api_key.id)
 
     return subject
 

@@ -16,6 +16,10 @@ from app.security.upstreams import validate_upstream_url
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
+class SlugConflictError(ValueError):
+    """Raised when a server slug already exists in the registry."""
+
+
 class RegistryService:
     """CRUD service for managing upstream MCP server registrations."""
 
@@ -45,7 +49,7 @@ class RegistryService:
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
-            raise ValueError(f"A server with slug '{command.slug}' already exists") from exc
+            raise SlugConflictError(f"A server with slug '{command.slug}' already exists") from exc
 
         return ServerView.model_validate(server)
 

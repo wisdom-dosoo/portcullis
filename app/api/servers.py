@@ -11,7 +11,7 @@ from app.api.dependencies import get_session, get_settings_dep
 from app.auth.dependencies import admin_subject, authenticated_subject
 from app.auth.subject import Subject
 from app.config import Settings
-from app.gateway.registry import DEFAULT_TENANT_ID, RegistryService
+from app.gateway.registry import DEFAULT_TENANT_ID, RegistryService, SlugConflictError
 from app.models.schemas import ServerCreate, ServerUpdate, ServerView
 from app.repositories.servers import ServerRepository
 
@@ -29,6 +29,8 @@ async def create_server(
     svc = RegistryService(session=session, settings=settings)
     try:
         return await svc.create(body)
+    except SlugConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
