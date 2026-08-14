@@ -61,6 +61,34 @@ class SubjectType(StrEnum):
     OAUTH_SUBJECT = "oauth_subject"
 
 
+class UserApprovalStatus(StrEnum):
+    """Lifecycle state of a user account.
+
+    ``approved``  — account active, can authenticate.
+    ``pending``   — created via an org join request, waiting for an admin.
+    ``rejected``  — join request denied by an admin.
+    """
+
+    APPROVED = "approved"
+    PENDING = "pending"
+    REJECTED = "rejected"
+
+
+class InvitationStatus(StrEnum):
+    """Lifecycle state of an invitation code.
+
+    ``active``   — redeemable (not used, not revoked, not expired).
+    ``used``     — a user has already redeemed it (single use).
+    ``revoked``  — an admin invalidated it.
+    ``expired``  — past its expires_at timestamp.
+    """
+
+    ACTIVE = "active"
+    USED = "used"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
 class PermissionEffect(StrEnum):
     ALLOW = "allow"
     DENY = "deny"
@@ -167,6 +195,77 @@ class McpServer(UuidPrimaryKeyMixin, TimestampMixin, Base):
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class User(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("tenant_id", "email"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    full_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    org_name: Mapped[str | None] = mapped_column(String(200))
+    intended_use: Mapped[str | None] = mapped_column(String(200))
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    approval_status: Mapped[UserApprovalStatus] = mapped_column(
+        SqlEnum(
+            UserApprovalStatus,
+            name="user_approval_status",
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=UserApprovalStatus.APPROVED,
+    )
+
+
+class Invitation(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One-time invite code granting access to an organization.
+
+    The code itself is never stored — only an HMAC-SHA256 hash keyed by the
+    server pepper.  Redeeming verifies the code, binds the registering user to
+    the invitation, and marks it used.
+    """
+
+    __tablename__ = "invitations"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_by: Mapped[UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+    )
+    org_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320))
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[InvitationStatus] = mapped_column(
+        SqlEnum(
+            InvitationStatus,
+            name="invitation_status",
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=InvitationStatus.ACTIVE,
+    )
+    redeemed_by: Mapped[UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ApiKey(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "api_keys"
 
@@ -174,6 +273,11 @@ class ApiKey(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
         Uuid,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+    user_id: Mapped[UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="SET NULL"),
         index=True,
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)

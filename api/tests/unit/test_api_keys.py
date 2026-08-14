@@ -232,6 +232,7 @@ class TestIssueKey:
             key_prefix: str,
             key_hash: str,
             scopes: list[str],
+            user_id: UUID | None = None,
         ) -> MagicMock:
             captured["key_hash"] = key_hash
             return fake_orm

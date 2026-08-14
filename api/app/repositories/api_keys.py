@@ -25,10 +25,12 @@ class ApiKeyRepository:
         key_prefix: str,
         key_hash: str,
         scopes: list[str],
+        user_id: UUID | None = None,
     ) -> ApiKey:
         """Persist a new API key record and return the ORM instance."""
         api_key = ApiKey(
             tenant_id=tenant_id,
+            user_id=user_id,
             name=name,
             key_prefix=key_prefix,
             key_hash=key_hash,
@@ -43,6 +45,17 @@ class ApiKeyRepository:
         result = await self._session.scalars(
             select(ApiKey).where(
                 ApiKey.key_prefix == prefix,
+                ApiKey.revoked_at.is_(None),
+            )
+        )
+        return result.first()
+
+    async def get_by_id(self, key_id: UUID, tenant_id: UUID) -> ApiKey | None:
+        """Return the active (non-revoked) key with the given ID, or None."""
+        result = await self._session.scalars(
+            select(ApiKey).where(
+                ApiKey.id == key_id,
+                ApiKey.tenant_id == tenant_id,
                 ApiKey.revoked_at.is_(None),
             )
         )

@@ -143,6 +143,10 @@ def create_app() -> FastAPI:
     )
     application.include_router(health_router)
 
+    from app.api.auth import router as auth_router
+
+    application.include_router(auth_router)
+
     from app.api.servers import router as servers_router
 
     application.include_router(servers_router)

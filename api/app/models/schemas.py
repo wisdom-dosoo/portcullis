@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.orm import (
     AuditEventType,
+    InvitationStatus,
     PermissionEffect,
     RateLimitAlgorithm,
     ServerAuthMode,
     ServerStatus,
     ServerTransport,
     SubjectType,
+    UserApprovalStatus,
 )
 
 _SLUG_ALLOWED = re.compile(r"^[a-z0-9-]+$")
@@ -83,6 +86,128 @@ class ServerUpdate(BaseModel):
         if not _SLUG_ALLOWED.match(normalized):
             raise ValueError("slug may only contain lowercase letters, digits, and hyphens")
         return normalized
+
+
+def _normalize_email(value: str) -> str:
+    """Normalize an email address to lowercase trimmed form."""
+    return value.strip().lower()
+
+
+class RegisterRequest(BaseModel):
+    """Schema for creating a new user account.
+
+    ``flow`` distinguishes the three registration paths:
+      * create      — start a new org; ``org_name`` set → approved.
+      * join        — request access to an existing org; created ``pending``
+                      for an admin to approve.
+      * invitation  — redeem an admin-issued ``invite_code`` → approved and
+                      bound to the invite's org.
+    """
+
+    full_name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=200)
+    flow: Literal["create", "join", "invitation"] = "create"
+    org_name: str | None = Field(default=None, max_length=200)
+    intended_use: str | None = Field(default=None, max_length=200)
+    invite_code: str | None = Field(default=None, max_length=200)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return _normalize_email(value)
+
+
+class LoginRequest(BaseModel):
+    """Schema for authenticating an existing user."""
+
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=200)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return _normalize_email(value)
+
+
+class UserView(BaseModel):
+    """Safe response schema for a user — never exposes password_hash.
+
+    ``access_token`` is present only on the admin approval response.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: str
+    full_name: str
+    org_name: str | None
+    intended_use: str | None
+    is_active: bool
+    approval_status: UserApprovalStatus
+    created_at: datetime
+    updated_at: datetime
+    access_token: str | None = None
+
+
+class AuthResponse(BaseModel):
+    """Response returned on successful register/login — includes one-time token."""
+
+    access_token: str
+    token_type: str = "bearer"
+    user: UserView
+
+
+class InviteCreate(BaseModel):
+    """Schema for an admin minting a new invitation code."""
+
+    org_name: str = Field(min_length=1, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
+    expires_in_days: int | None = Field(default=None, ge=1, le=365)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return _normalize_email(value)
+
+
+class InviteView(BaseModel):
+    """View of an invitation — never exposes the code hash.
+
+    ``code`` holds the one-time plaintext and is present only in the single
+    mint response.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    org_name: str
+    email: str | None
+    status: InvitationStatus
+    redeemed_by: UUID | None
+    redeemed_at: datetime | None
+    expires_at: datetime | None
+    created_at: datetime
+    code: str | None = None
+
+
+class InviteRedeemResponse(BaseModel):
+    """Response returned when an invitation code is minted or validated."""
+
+    id: UUID
+    org_name: str
+
+
+class ApprovalDecision(BaseModel):
+    """Schema for an admin approving or rejecting a pending join request."""
+
+    user_id: UUID
 
 
 class ApiKeyCreate(BaseModel):

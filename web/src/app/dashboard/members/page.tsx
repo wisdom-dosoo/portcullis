@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Users,
@@ -17,6 +17,9 @@ import {
   Activity,
   Clock,
   Mail,
+  XCircle,
+  Copy,
+  Link2,
 } from "lucide-react";
 import {
   useListApiKeysV1ApiKeysGet,
@@ -39,6 +42,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
+import { axiosClient } from "@/lib/axios-instance";
 
 /* ── constants ────────────────────────────────────────────────────────────── */
 
@@ -695,6 +699,375 @@ function InviteMemberDialog({
   );
 }
 
+/* ── invite code dialog (backend invitations) ────────────────────────────── */
+
+interface InviteView {
+  id: string;
+  org_name: string;
+  email: string | null;
+  status: "active" | "used" | "revoked" | "expired";
+  code?: string | null;
+  created_at: string;
+  expires_at: string | null;
+}
+
+function InviteCodeDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [orgName, setOrgName] = useState("");
+  const [email, setEmail] = useState("");
+  const [expiryDays, setExpiryDays] = useState("30");
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<InviteView | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      const { data } = await axiosClient.post("/auth/invites", {
+        org_name: orgName.trim(),
+        email: email.trim() || null,
+        expires_in_days: expiryDays ? Number(expiryDays) : null,
+      });
+      const invite = data as InviteView;
+      setCreated(invite);
+      toast.success("Invitation code generated");
+    } catch (err: unknown) {
+      toast.error(
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+          "Failed to generate invitation"
+      );
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function handleClose() {
+    onClose();
+    if (created) onCreated();
+    setCreated(null);
+    setOrgName("");
+    setEmail("");
+    setExpiryDays("30");
+  }
+
+  function copyCode() {
+    if (!created?.code) return;
+    navigator.clipboard.writeText(created.code);
+    toast.success("Code copied to clipboard");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent
+        className="sm:max-w-md rounded-2xl border"
+        style={{ background: "var(--pc-surface)", borderColor: "var(--pc-border)" }}
+      >
+        <DialogHeader>
+          <DialogTitle
+            className="flex items-center gap-2.5 text-base"
+            style={{ color: "var(--pc-foreground)" }}
+          >
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: "rgba(45,212,167,0.15)" }}
+            >
+              <Link2 className="w-4 h-4" strokeWidth={1.75} style={{ color: "#2DD4A7" }} />
+            </div>
+            Generate Invitation
+          </DialogTitle>
+        </DialogHeader>
+
+        {created?.code ? (
+          <div className="space-y-4 py-2">
+            <div
+              className="flex items-center gap-2 p-3 rounded-xl"
+              style={{ background: "rgba(53,200,138,0.1)", border: "1px solid rgba(53,200,138,0.25)" }}
+            >
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" style={{ color: "var(--pc-success)" }} />
+              <span className="text-sm font-medium" style={{ color: "var(--pc-success)" }}>
+                Share this code with the invitee
+              </span>
+            </div>
+
+            <div
+              className="p-3 rounded-xl"
+              style={{ background: "rgba(244,185,66,0.08)", border: "1px solid rgba(244,185,66,0.25)" }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-3.5 h-3.5" style={{ color: "var(--pc-warning)" }} />
+                <span className="text-xs font-semibold" style={{ color: "var(--pc-warning)" }}>
+                  Save this code — it won&apos;t be shown again
+                </span>
+              </div>
+            </div>
+
+            <div
+              className="flex items-center gap-2 p-3 rounded-xl"
+              style={{ background: "var(--pc-elevated)", border: "1px solid var(--pc-border)" }}
+            >
+              <code
+                className="flex-1 text-base font-mono tracking-widest text-center py-1 select-all"
+                style={{ color: "var(--pc-primary)" }}
+              >
+                {created.code}
+              </code>
+              <button
+                type="button"
+                onClick={copyCode}
+                className="flex-shrink-0 p-2 rounded-lg transition-colors hover:opacity-80"
+                style={{ background: "var(--pc-surface)", color: "var(--pc-muted)" }}
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleClose}
+              className="w-full py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
+              style={{ background: "var(--pc-primary)", color: "#0C1116" }}
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: "var(--pc-muted)" }}
+              >
+                Organization
+              </Label>
+              <input
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                placeholder="Acme Corp"
+                required
+                style={INPUT_STYLE}
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: "var(--pc-muted)" }}
+              >
+                Restrict to email (optional)
+              </Label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@company.com"
+                style={INPUT_STYLE}
+              />
+              <span className="text-xs" style={{ color: "var(--pc-muted)" }}>
+                If set, only this address can redeem the code.
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: "var(--pc-muted)" }}
+              >
+                Expires in (days)
+              </Label>
+              <select
+                value={expiryDays}
+                onChange={(e) => setExpiryDays(e.target.value)}
+                style={{ ...INPUT_STYLE, cursor: "pointer" }}
+              >
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="365">365 days</option>
+                <option value="">Never expires</option>
+              </select>
+            </div>
+
+            <DialogFooter>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="px-4 py-2 text-sm transition-colors"
+                style={{ color: "var(--pc-muted)" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creating || !orgName.trim()}
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-medium disabled:opacity-50 transition-opacity hover:opacity-90"
+                style={{ background: "var(--pc-primary)", color: "#0C1116" }}
+              >
+                {creating ? "Generating…" : "Generate Code"}
+              </button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ── pending approvals panel ─────────────────────────────────────────────── */
+
+interface PendingUser {
+  id: string;
+  email: string;
+  full_name: string;
+  org_name: string | null;
+  intended_use: string | null;
+  created_at: string;
+}
+
+function PendingApprovalsPanel() {
+  const qc = useQueryClient();
+  const [users, setUsers] = useState<PendingUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    axiosClient
+      .get("/auth/pending-users")
+      .then(({ data }) => {
+        if (!cancelled) setUsers((data ?? []) as PendingUser[]);
+      })
+      .catch(() => {
+        // Non-admin tokens will fail here — degrade silently.
+        if (!cancelled) setUsers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function decide(userId: string, action: "approve" | "reject") {
+    setActing(userId);
+    try {
+      await axiosClient.post(
+        `/auth/pending-users/${userId}/${action}`,
+        action === "approve" ? { user_id: userId } : undefined
+      );
+      toast.success(action === "approve" ? "Request approved" : "Request rejected");
+      qc.invalidateQueries({ queryKey: ["/v1/api-keys"] });
+      const { data } = await axiosClient.get("/auth/pending-users");
+      setUsers((data ?? []) as PendingUser[]);
+    } catch {
+      toast.error(`Failed to ${action} request`);
+    } finally {
+      setActing(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3 p-5">
+        {[...Array(2)].map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full rounded-xl" />
+        ))}
+      </div>
+    );
+  }
+
+  if (users.length === 0) return null;
+
+  return (
+    <div
+      className="rounded-2xl border overflow-hidden"
+      style={{ background: "var(--pc-surface)", borderColor: "var(--pc-border)" }}
+    >
+      <div
+        className="flex items-center gap-3 px-5 py-4 border-b"
+        style={{ borderColor: "var(--pc-border)", background: "var(--pc-elevated)" }}
+      >
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center"
+          style={{ background: "rgba(244,185,66,0.15)" }}
+        >
+          <Clock className="w-4 h-4" strokeWidth={1.75} style={{ color: "var(--pc-warning)" }} />
+        </div>
+        <div>
+          <div className="text-sm font-semibold" style={{ color: "var(--pc-foreground)" }}>
+            Pending join requests
+          </div>
+          <div className="text-xs" style={{ color: "var(--pc-muted)" }}>
+            {users.length} request{users.length !== 1 ? "s" : ""} awaiting your decision
+          </div>
+        </div>
+      </div>
+
+      <div className="divide-y divide-[var(--pc-border)]">
+        {users.map((u) => (
+          <div key={u.id} className="flex items-center gap-4 px-5 py-4">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: "rgba(72,184,232,0.15)" }}
+            >
+              <UserPlus className="w-4 h-4" strokeWidth={1.75} style={{ color: "#48B8E8" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate" style={{ color: "var(--pc-foreground)" }}>
+                {u.full_name}
+                <span className="font-normal ml-2" style={{ color: "var(--pc-muted)" }}>
+                  {u.email}
+                </span>
+              </div>
+              <div className="text-xs mt-0.5 truncate" style={{ color: "var(--pc-muted)" }}>
+                {u.org_name ?? "Organization not specified"}
+                {u.intended_use ? ` · ${u.intended_use}` : ""}
+              </div>
+            </div>
+            <div className="hidden md:block text-xs tabular-nums" style={{ color: "var(--pc-muted)" }}>
+              {formatRelativeTime(u.created_at)}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => decide(u.id, "reject")}
+                disabled={acting === u.id}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{
+                  color: "var(--pc-critical)",
+                  background: "rgba(240,93,94,0.1)",
+                  border: "1px solid rgba(240,93,94,0.25)",
+                }}
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                Reject
+              </button>
+              <button
+                type="button"
+                onClick={() => decide(u.id, "approve")}
+                disabled={acting === u.id}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{ background: "var(--pc-primary)", color: "#0C1116" }}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {acting === u.id ? "Approving…" : "Approve"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── member row ──────────────────────────────────────────────────────────── */
 
 interface MemberRowProps {
@@ -923,6 +1296,7 @@ export default function MembersPage() {
   const [search, setSearch] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [bulkInviteOpen, setBulkInviteOpen] = useState(false);
+  const [inviteCodeOpen, setInviteCodeOpen] = useState(false);
   const [assignRoleTarget, setAssignRoleTarget] = useState<ApiKeyView | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyView | null>(null);
 
@@ -966,6 +1340,18 @@ export default function MembersPage() {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
+            onClick={() => setInviteCodeOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium border transition-colors hover:opacity-80"
+            style={{
+              color: "var(--pc-foreground)",
+              borderColor: "var(--pc-border)",
+              background: "var(--pc-surface)",
+            }}
+          >
+            <Link2 className="w-4 h-4" />
+            Generate Invitation
+          </button>
+          <button
             onClick={() => setBulkInviteOpen(true)}
             className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium border transition-colors hover:opacity-80"
             style={{
@@ -987,6 +1373,9 @@ export default function MembersPage() {
           </button>
         </div>
       </div>
+
+      {/* ── pending approvals ── */}
+      <PendingApprovalsPanel />
 
       {/* ── stats row ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1142,6 +1531,11 @@ export default function MembersPage() {
         onClose={() => setBulkInviteOpen(false)}
         roles={roles}
         bulk
+      />
+      <InviteCodeDialog
+        open={inviteCodeOpen}
+        onClose={() => setInviteCodeOpen(false)}
+        onCreated={() => qc.invalidateQueries({ queryKey: ["/v1/api-keys"] })}
       />
       <AssignRoleDialog
         open={!!assignRoleTarget}

@@ -54,6 +54,7 @@ async def issue_key(
     session: AsyncSession,
     tenant_id: UUID,
     ph: PasswordHasher | None = None,
+    user_id: UUID | None = None,
 ) -> IssuedKey:
     """Generate, hash, persist, and return a new API key.
 
@@ -74,6 +75,7 @@ async def issue_key(
         key_prefix=prefix,
         key_hash=key_hash,
         scopes=scopes,
+        user_id=user_id,
     )
     await session.commit()
 

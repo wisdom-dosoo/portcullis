@@ -17,6 +17,8 @@ EXPECTED_TABLES = {
     "tool_permissions",
     "rate_limit_policies",
     "audit_logs",
+    "users",
+    "invitations",
 }
 
 
@@ -88,6 +90,27 @@ def test_permission_constraints_and_enums() -> None:
 
     assert _foreign_key_targets(table, "role_id") == {"roles.id"}
     assert _enum_values(table, "effect") == ("allow", "deny")
+
+
+def test_user_and_api_key_auth_constraints() -> None:
+    users = orm.Base.metadata.tables["users"]
+    api_keys = orm.Base.metadata.tables["api_keys"]
+
+    assert _foreign_key_targets(users, "tenant_id") == {"tenants.id"}
+    assert frozenset(("tenant_id", "email")) in _unique_column_sets(users)
+    # api_keys.user_id is a nullable FK back to users for token attribution.
+    assert _foreign_key_targets(api_keys, "user_id") == {"users.id"}
+
+
+def test_invitation_auth_constraints_and_enums() -> None:
+    users = orm.Base.metadata.tables["users"]
+    invitations = orm.Base.metadata.tables["invitations"]
+
+    assert _foreign_key_targets(invitations, "tenant_id") == {"tenants.id"}
+    assert _foreign_key_targets(invitations, "created_by") == {"users.id"}
+    assert _foreign_key_targets(invitations, "redeemed_by") == {"users.id"}
+    assert _enum_values(invitations, "status") == ("active", "used", "revoked", "expired")
+    assert _enum_values(users, "approval_status") == ("approved", "pending", "rejected")
 
 
 def test_rate_limit_constraints_and_enums() -> None:

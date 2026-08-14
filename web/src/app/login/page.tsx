@@ -140,6 +140,8 @@ function ServiceStatus({ ok }: { ok: boolean | null }) {
 type AuthError =
   | "invalid_credentials"
   | "too_many_attempts"
+  | "pending_approval"
+  | "rejected"
   | "service_unavailable"
   | "session_expired"
   | null;
@@ -152,6 +154,14 @@ const ERROR_MESSAGES: Record<NonNullable<AuthError>, { title: string; detail: st
   too_many_attempts: {
     title: "Too many attempts",
     detail: "Your access has been temporarily locked. Try again in a few minutes.",
+  },
+  pending_approval: {
+    title: "Account pending approval",
+    detail: "Your request to join an organization is still being reviewed. Please check back later.",
+  },
+  rejected: {
+    title: "Access denied",
+    detail: "Your account has not been approved. Contact an organization admin for help.",
   },
   service_unavailable: {
     title: "Service unavailable",
@@ -211,15 +221,11 @@ function SignInForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading, setLoading]   = useState(false);
-  const [authError, setAuthError] = useState<AuthError>(null);
+  const [authError, setAuthError] = useState<AuthError>(
+    () => (searchParams.get("reason") === "expired" ? "session_expired" : null)
+  );
   const [serviceOk, setServiceOk] = useState<boolean | null>(null);
   const [attempts, setAttempts] = useState(0);
-
-  // Handle ?reason= query param (e.g. session_expired)
-  useEffect(() => {
-    const reason = searchParams.get("reason");
-    if (reason === "expired") setAuthError("session_expired");
-  }, [searchParams]);
 
   // Passive health check
   useEffect(() => {
@@ -238,7 +244,7 @@ function SignInForm() {
       const trimmedEmail = email.trim();
 
       if (trimmedApiKey) {
-        await axiosClient.get("/healthz", {
+        await axiosClient.get("/auth/me", {
           headers: { Authorization: `Bearer ${trimmedApiKey}` },
         });
         setToken(trimmedApiKey);
@@ -255,10 +261,13 @@ function SignInForm() {
     } catch (err: unknown) {
       setAttempts((n) => n + 1);
       const status = (err as { response?: { status?: number } })?.response?.status;
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       if (!status) {
         setAuthError("service_unavailable");
-      } else if (status === 401 || status === 403) {
-        setAuthError("invalid_credentials");
+      } else if (status === 403 && detail?.includes("pending approval")) {
+        setAuthError("pending_approval");
+      } else if (status === 403 && detail?.includes("denied")) {
+        setAuthError("rejected");
       } else {
         setAuthError("invalid_credentials");
       }
@@ -268,7 +277,7 @@ function SignInForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3.5">
       <ErrorBanner error={authError} />
 
       {/* API key field */}
@@ -283,7 +292,7 @@ function SignInForm() {
             onChange={(e) => { setApiKey(e.target.value); setAuthError(null); }}
             placeholder="pk_live_••••••••••••••••"
             autoComplete="current-password"
-            className="w-full px-3.5 py-2.5 pr-11 rounded-xl border text-sm font-mono outline-none transition-colors"
+            className="w-full px-3.5 py-2 pr-11 rounded-xl border text-sm font-mono outline-none transition-colors"
             style={{
               background: "var(--pc-elevated)",
               borderColor: authError ? "rgba(240,93,94,0.5)" : "var(--pc-border)",
@@ -315,7 +324,7 @@ function SignInForm() {
       {/* Email and password fields */}
       <div className="grid gap-3">
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: "var(--pc-muted)" }}>
+          <label className="block text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--pc-muted)" }}>
             Email
           </label>
           <div className="relative">
@@ -326,7 +335,7 @@ function SignInForm() {
               onChange={(e) => { setEmail(e.target.value); setAuthError(null); }}
               placeholder="jane@company.com"
               autoComplete="email"
-              className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border text-sm outline-none transition-colors"
+              className="w-full pl-10 pr-3.5 py-2 rounded-xl border text-sm outline-none transition-colors"
               style={{
                 background: "var(--pc-elevated)",
                 borderColor: authError ? "rgba(240,93,94,0.5)" : "var(--pc-border)",
@@ -337,7 +346,7 @@ function SignInForm() {
         </div>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: "var(--pc-muted)" }}>
+          <label className="block text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--pc-muted)" }}>
             Password
           </label>
           <div className="relative">
@@ -348,7 +357,7 @@ function SignInForm() {
               onChange={(e) => { setPassword(e.target.value); setAuthError(null); }}
               placeholder="Enter your password"
               autoComplete="current-password"
-              className="w-full pl-10 pr-11 py-2.5 rounded-xl border text-sm outline-none transition-colors"
+              className="w-full pl-10 pr-11 py-2 rounded-xl border text-sm outline-none transition-colors"
               style={{
                 background: "var(--pc-elevated)",
                 borderColor: authError ? "rgba(240,93,94,0.5)" : "var(--pc-border)",
@@ -392,7 +401,7 @@ function SignInForm() {
       <button
         type="submit"
         disabled={loading || attempts >= 5 || (!apiKey.trim() && (!email.trim() || !password))}
-        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         style={{ background: "var(--pc-primary)", color: "#0C1116" }}
       >
         {loading
@@ -437,14 +446,14 @@ function SignInForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen lg:h-screen flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden" style={{ background: "var(--pc-bg)" }}>
+    <div className="min-h-screen lg:h-screen flex flex-col lg:flex-row overflow-hidden" style={{ background: "var(--pc-bg)" }}>
 
       {/* ── Left panel — form ─────────────────────────────────────── */}
-      <div className="flex flex-col justify-start lg:justify-center w-full lg:w-[480px] xl:w-[520px] flex-shrink-0 px-6 py-8 sm:px-8 lg:px-14 lg:h-screen lg:overflow-y-auto">
+      <div className="flex flex-col justify-start lg:justify-center w-full lg:w-[480px] xl:w-[520px] flex-shrink-0 px-6 py-6 sm:px-8 lg:px-14 lg:h-screen lg:overflow-y-auto">
 
         {/* Logo */}
-        <div className="mb-10">
-          <div className="flex items-center gap-3 mb-8">
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-6">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{ background: "var(--pc-primary)" }}
@@ -466,7 +475,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--pc-foreground)" }}>
             Sign in to your gateway
           </h1>
-          <p className="text-sm mt-2" style={{ color: "var(--pc-muted)" }}>
+          <p className="text-sm mt-1.5" style={{ color: "var(--pc-muted)" }}>
             Authenticate with your API key or an identity provider
           </p>
         </div>
@@ -475,7 +484,7 @@ export default function LoginPage() {
           <SignInForm />
         </Suspense>
 
-        <p className="mt-8 text-center text-xs" style={{ color: "var(--pc-muted)" }}>
+        <p className="mt-6 text-center text-xs" style={{ color: "var(--pc-muted)" }}>
           New to Portcullis?{" "}
           <Link href="/register" className="font-medium" style={{ color: "var(--pc-primary)" }}>
             Create an account
