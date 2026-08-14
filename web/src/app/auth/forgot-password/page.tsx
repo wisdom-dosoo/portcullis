@@ -135,10 +135,10 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex" style={{ background: "var(--pc-bg)" }}>
+    <div className="min-h-screen lg:h-screen flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden" style={{ background: "var(--pc-bg)" }}>
 
       {/* ── Left: form ──────────────────────────────────────────── */}
-      <div className="flex-1 flex items-center justify-center px-6 py-10 overflow-y-auto">
+      <div className="flex-1 flex items-start justify-center px-6 py-8 lg:py-10 lg:h-screen lg:overflow-y-auto">
         <div className="w-full max-w-md">
 
           {/* Logo */}
@@ -383,7 +383,7 @@ export default function ForgotPasswordPage() {
 
           <p className="text-xs text-center mt-8" style={{ color: "var(--pc-muted)" }}>
             Need help?{" "}
-            <Link href="#" className="underline" style={{ color: "var(--pc-primary)" }}>Contact support</Link>
+            <a href="mailto:support@portcullis.dev" className="underline" style={{ color: "var(--pc-primary)" }}>Contact support</a>
           </p>
         </div>
       </div>
