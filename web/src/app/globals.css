@@ -1,0 +1,177 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-pc-sans);
+  --font-mono: var(--font-pc-mono);
+  --font-heading: var(--font-pc-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Portcullis design tokens */
+  --color-pc-bg: var(--pc-bg);
+  --color-pc-surface: var(--pc-surface);
+  --color-pc-elevated: var(--pc-elevated);
+  --color-pc-border: var(--pc-border);
+  --color-pc-primary: var(--pc-primary);
+  --color-pc-secondary: var(--pc-secondary);
+  --color-pc-warning: var(--pc-warning);
+  --color-pc-critical: var(--pc-critical);
+  --color-pc-success: var(--pc-success);
+  --color-pc-muted: var(--pc-muted);
+  --color-pc-foreground: var(--pc-foreground);
+}
+
+:root {
+  --font-pc-sans: "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-pc-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  /* Portcullis dark-first tokens */
+  --pc-bg: #0C1116;
+  --pc-surface: #151B22;
+  --pc-elevated: #1B232C;
+  --pc-border: #26303A;
+  --pc-primary: #2DD4A7;
+  --pc-secondary: #48B8E8;
+  --pc-warning: #F4B942;
+  --pc-critical: #F05D5E;
+  --pc-success: #35C88A;
+  --pc-muted: #8B98A7;
+  --pc-foreground: #F1F5F9;
+
+  /* shadcn tokens — dark by default */
+  --background: #0C1116;
+  --foreground: #F1F5F9;
+  --card: #151B22;
+  --card-foreground: #F1F5F9;
+  --popover: #1B232C;
+  --popover-foreground: #F1F5F9;
+  --primary: #2DD4A7;
+  --primary-foreground: #0C1116;
+  --secondary: #1B232C;
+  --secondary-foreground: #F1F5F9;
+  --muted: #1B232C;
+  --muted-foreground: #8B98A7;
+  --accent: #1B232C;
+  --accent-foreground: #F1F5F9;
+  --destructive: #F05D5E;
+  --border: #26303A;
+  --input: #26303A;
+  --ring: #2DD4A7;
+  --chart-1: #2DD4A7;
+  --chart-2: #48B8E8;
+  --chart-3: #F4B942;
+  --chart-4: #F05D5E;
+  --chart-5: #35C88A;
+  --radius: 0.625rem;
+  --sidebar: #0C1116;
+  --sidebar-foreground: #F1F5F9;
+  --sidebar-primary: #2DD4A7;
+  --sidebar-primary-foreground: #0C1116;
+  --sidebar-accent: #1B232C;
+  --sidebar-accent-foreground: #F1F5F9;
+  --sidebar-border: #26303A;
+  --sidebar-ring: #2DD4A7;
+}
+
+/* Keep .dark class parity for any components that expect it */
+.dark {
+  --background: #0C1116;
+  --foreground: #F1F5F9;
+  --card: #151B22;
+  --card-foreground: #F1F5F9;
+  --popover: #1B232C;
+  --popover-foreground: #F1F5F9;
+  --primary: #2DD4A7;
+  --primary-foreground: #0C1116;
+  --secondary: #1B232C;
+  --secondary-foreground: #F1F5F9;
+  --muted: #1B232C;
+  --muted-foreground: #8B98A7;
+  --accent: #1B232C;
+  --accent-foreground: #F1F5F9;
+  --destructive: #F05D5E;
+  --border: #26303A;
+  --input: #26303A;
+  --ring: #2DD4A7;
+  --chart-1: #2DD4A7;
+  --chart-2: #48B8E8;
+  --chart-3: #F4B942;
+  --chart-4: #F05D5E;
+  --chart-5: #35C88A;
+  --sidebar: #0C1116;
+  --sidebar-foreground: #F1F5F9;
+  --sidebar-primary: #2DD4A7;
+  --sidebar-primary-foreground: #0C1116;
+  --sidebar-accent: #1B232C;
+  --sidebar-accent-foreground: #F1F5F9;
+  --sidebar-border: #26303A;
+  --sidebar-ring: #2DD4A7;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+
+  /* Scrollbar styling for dark theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #26303A;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #8B98A7;
+  }
+}

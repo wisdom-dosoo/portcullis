@@ -1,0 +1,97 @@
+<style>
+  .pc-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin-top:24px; }
+  .pc-card { background:#0c1116; border:1px solid #26303a; border-radius:16px; overflow:hidden; color:#f1f5f9; }
+  .pc-top { height:38px; padding:0 12px; display:flex; align-items:center; gap:8px; background:#0a0f14; border-bottom:1px solid #26303a; font-size:9px; }
+  .pc-brand { width:15px; height:15px; border-radius:5px; background:#2dd4a7; }
+  .pc-search { height:17px; flex:1; max-width:90px; border-radius:5px; background:#151b22; border:1px solid #26303a; }
+  .pc-bell { margin-left:auto; position:relative; width:18px; height:18px; display:grid; place-items:center; border-radius:5px; background:#1b232c; }
+  .pc-dot { position:absolute; right:-2px; top:-3px; min-width:11px; height:11px; border-radius:8px; background:#f05d5e; color:white; font-size:6px; display:grid; place-items:center; }
+  .pc-stage { min-height:245px; display:flex; background:#0c1116; }
+  .pc-main { flex:1; padding:15px; }
+  .pc-line { height:7px; border-radius:4px; background:#26303a; margin-bottom:8px; }
+  .pc-line.accent { width:44%; background:#2dd4a7; opacity:.8; }
+  .pc-line.short { width:62%; }
+  .pc-drawer { width:68%; padding:12px; background:#151b22; border-left:1px solid #26303a; box-shadow:-12px 0 30px rgba(0,0,0,.35); }
+  .pc-head { display:flex; justify-content:space-between; align-items:center; font-size:9px; font-weight:700; margin-bottom:9px; }
+  .pc-chiprow { display:flex; gap:4px; margin-bottom:9px; }
+  .pc-chip { padding:3px 6px; border-radius:8px; background:#1b232c; color:#8b98a7; font-size:6px; }
+  .pc-chip.on { background:rgba(45,212,167,.14); color:#2dd4a7; }
+  .pc-item { display:grid; grid-template-columns:17px 1fr; gap:7px; padding:7px 0; border-top:1px solid #26303a; }
+  .pc-icon { width:17px; height:17px; border-radius:6px; background:rgba(72,184,232,.16); }
+  .pc-icon.warn { background:rgba(244,185,66,.17); }
+  .pc-icon.danger { background:rgba(240,93,94,.17); }
+  .pc-copy b { display:block; font-size:7px; margin-bottom:3px; }
+  .pc-copy span { display:block; height:4px; border-radius:3px; background:#26303a; margin-top:3px; }
+  .pc-page { width:100%; padding:13px; }
+  .pc-pagehead { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:10px; font-weight:700; }
+  .pc-columns { display:grid; grid-template-columns:70px 1fr; gap:9px; }
+  .pc-filters { background:#151b22; border:1px solid #26303a; border-radius:8px; padding:8px; }
+  .pc-filter { font-size:6px; padding:5px; border-radius:5px; color:#8b98a7; }
+  .pc-filter.on { color:#2dd4a7; background:rgba(45,212,167,.12); }
+  .pc-list { background:#151b22; border:1px solid #26303a; border-radius:8px; padding:0 8px; }
+  .pc-route { color:#48b8e8; font-size:6px; margin-top:4px; }
+  .pc-footer { border-top:1px solid #26303a; padding-top:8px; margin-top:8px; display:flex; justify-content:space-between; font-size:6px; color:#8b98a7; }
+  .pc-link { color:#2dd4a7; }
+  .option[data-choice="hybrid"] { border-color:rgba(45,212,167,.55); box-shadow:0 0 0 1px rgba(45,212,167,.15); }
+  .recommend { display:inline-flex; margin-left:8px; padding:3px 7px; border-radius:99px; background:rgba(45,212,167,.12); color:#2dd4a7; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  @media (max-width:900px) { .pc-grid { grid-template-columns:1fr; } }
+</style>
+
+<h2>Choose the production notification-center layout</h2>
+<p class="subtitle">All options support role-specific inboxes, live SSE updates, unread state, filters, resource links, and notification preferences.</p>
+
+<div class="options pc-grid">
+  <div class="option" data-choice="drawer" onclick="toggleSelect(this)">
+    <div class="pc-card">
+      <div class="pc-top"><div class="pc-brand"></div><div class="pc-search"></div><div class="pc-bell">&#9679;<div class="pc-dot">4</div></div></div>
+      <div class="pc-stage">
+        <div class="pc-main"><div class="pc-line accent"></div><div class="pc-line"></div><div class="pc-line short"></div></div>
+        <div class="pc-drawer">
+          <div class="pc-head"><span>Developer inbox</span><span style="color:#2dd4a7">Read all</span></div>
+          <div class="pc-chiprow"><span class="pc-chip on">All</span><span class="pc-chip">Unread</span><span class="pc-chip">Access</span></div>
+          <div class="pc-item"><div class="pc-icon"></div><div class="pc-copy"><b>Access request approved</b><span></span><div class="pc-route">Open tool &#8594;</div></div></div>
+          <div class="pc-item"><div class="pc-icon warn"></div><div class="pc-copy"><b>API key expiring</b><span></span><div class="pc-route">Review key &#8594;</div></div></div>
+          <div class="pc-footer"><span>4 unread</span><span class="pc-link">Preferences</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="content"><h3>A. Drawer only</h3><p>Fast and compact. Every control lives in the top-bar drawer, but long histories and advanced filters become cramped.</p></div>
+  </div>
+
+  <div class="option" data-choice="page" onclick="toggleSelect(this)">
+    <div class="pc-card">
+      <div class="pc-top"><div class="pc-brand"></div><div class="pc-search"></div><div class="pc-bell">&#9679;<div class="pc-dot">4</div></div></div>
+      <div class="pc-stage">
+        <div class="pc-page">
+          <div class="pc-pagehead"><span>Notifications / Developer</span><span style="color:#2dd4a7">Mark all read</span></div>
+          <div class="pc-columns">
+            <div class="pc-filters"><div class="pc-filter on">All 12</div><div class="pc-filter">Unread 4</div><div class="pc-filter">Security</div><div class="pc-filter">Access</div><div class="pc-filter">Usage</div></div>
+            <div class="pc-list">
+              <div class="pc-item"><div class="pc-icon danger"></div><div class="pc-copy"><b>Security alert</b><span></span><div class="pc-route">Review activity &#8594;</div></div></div>
+              <div class="pc-item"><div class="pc-icon"></div><div class="pc-copy"><b>New tool available</b><span></span><div class="pc-route">Explore tool &#8594;</div></div></div>
+              <div class="pc-item"><div class="pc-icon warn"></div><div class="pc-copy"><b>Usage threshold reached</b><span></span><div class="pc-route">View usage &#8594;</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="content"><h3>B. Full page</h3><p>Best for history and filtering. Every bell click navigates away from the user’s current task.</p></div>
+  </div>
+
+  <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="pc-card">
+      <div class="pc-top"><div class="pc-brand"></div><div class="pc-search"></div><div class="pc-bell">&#9679;<div class="pc-dot">4</div></div></div>
+      <div class="pc-stage">
+        <div class="pc-main"><div class="pc-line accent"></div><div class="pc-line"></div><div class="pc-line short"></div></div>
+        <div class="pc-drawer">
+          <div class="pc-head"><span>Developer inbox</span><span style="color:#2dd4a7">Read all</span></div>
+          <div class="pc-chiprow"><span class="pc-chip on">All</span><span class="pc-chip">Unread</span><span class="pc-chip">Security</span></div>
+          <div class="pc-item"><div class="pc-icon danger"></div><div class="pc-copy"><b>Security alert</b><span></span><div class="pc-route">Review activity &#8594;</div></div></div>
+          <div class="pc-item"><div class="pc-icon"></div><div class="pc-copy"><b>Access request approved</b><span></span><div class="pc-route">Open tool &#8594;</div></div></div>
+          <div class="pc-footer"><span class="pc-link">View all notifications</span><span class="pc-link">Preferences</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="content"><h3>C. Hybrid <span class="recommend">Recommended</span></h3><p>The bell opens a fast recent-inbox drawer; “View all” opens a full searchable history, while preferences get a focused route.</p></div>
+  </div>
+</div>

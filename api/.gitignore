@@ -211,7 +211,6 @@ tempCodeRunnerFile.py
 
 # Local Git worktrees
 .worktrees/
-.nested-git-backups/
 
 # Marimo
 marimo/_static/
@@ -220,25 +219,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Node and Next.js
-node_modules/
-.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-.next/
-out/
-coverage/
-*.tsbuildinfo
-next-env.d.ts
-
-# Vercel
-.vercel/
