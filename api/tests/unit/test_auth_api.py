@@ -31,6 +31,7 @@ def _make_orm_user(user_id: UUID | None = None) -> MagicMock:
     obj.password_hash = "$argon2id$dummy"
     obj.is_active = True
     obj.approval_status = UserApprovalStatus.APPROVED
+    obj.is_platform_admin = False
     obj.access_token = None
     obj.created_at = NOW
     obj.updated_at = NOW
