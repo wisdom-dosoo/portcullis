@@ -76,11 +76,7 @@ async def register(
         return await _register_via_invite(body, password_hash, session, settings)
 
     # create (approved) vs join (pending)
-    approval = (
-        UserApprovalStatus.APPROVED
-        if body.flow == "create"
-        else UserApprovalStatus.PENDING
-    )
+    approval = UserApprovalStatus.APPROVED if body.flow == "create" else UserApprovalStatus.PENDING
     user = await repo.create(
         tenant_id=DEFAULT_TENANT_ID,
         email=body.email,
@@ -98,7 +94,9 @@ async def register(
         return AuthResponse(access_token="", user=UserView.model_validate(user))
 
     issued = await _issue_user_token(session, user.id, user.email, settings)
-    return AuthResponse(access_token=issued.plaintext, token_type="bearer", user=UserView.model_validate(user))
+    return AuthResponse(
+        access_token=issued.plaintext, token_type="bearer", user=UserView.model_validate(user)
+    )
 
 
 async def _register_via_invite(
@@ -162,7 +160,9 @@ async def login(
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if user.approval_status is UserApprovalStatus.PENDING:
-        raise HTTPException(status_code=403, detail="Your account is pending approval by an organization admin.")
+        raise HTTPException(
+            status_code=403, detail="Your account is pending approval by an organization admin."
+        )
     if user.approval_status is UserApprovalStatus.REJECTED:
         raise HTTPException(status_code=403, detail="Your account has been denied.")
 
@@ -171,7 +171,9 @@ async def login(
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     issued = await _issue_user_token(session, user.id, user.email, settings)
-    return AuthResponse(access_token=issued.plaintext, token_type="bearer", user=UserView.model_validate(user))
+    return AuthResponse(
+        access_token=issued.plaintext, token_type="bearer", user=UserView.model_validate(user)
+    )
 
 
 @router.get("/me", response_model=UserView)
@@ -190,7 +192,11 @@ async def me(
 
     repo = UserRepository(session)
     user = await repo.get_by_id(DEFAULT_TENANT_ID, api_key.user_id)
-    if user is None or not user.is_active or user.approval_status is not UserApprovalStatus.APPROVED:
+    if (
+        user is None
+        or not user.is_active
+        or user.approval_status is not UserApprovalStatus.APPROVED
+    ):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return UserView.model_validate(user)
 

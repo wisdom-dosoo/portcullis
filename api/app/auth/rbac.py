@@ -6,7 +6,10 @@ import fnmatch
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.models.orm import PermissionEffect, ToolPermission  # noqa: F401 (UUID kept for PermissionDecision)
+from app.models.orm import (
+    PermissionEffect,
+    ToolPermission,
+)
 
 
 @dataclass(frozen=True)

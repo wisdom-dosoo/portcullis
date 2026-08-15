@@ -300,7 +300,9 @@ class TestAdminNonBypass:
                 effect=PermissionEffect.DENY,
             )
         ]
-        decision = evaluate_permission(str(uuid4()), "restricted-server", "delete_everything", perms)
+        decision = evaluate_permission(
+            str(uuid4()), "restricted-server", "delete_everything", perms
+        )
         assert decision.allowed is False
         assert decision.reason == "denied by rule"
 

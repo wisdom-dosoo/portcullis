@@ -73,8 +73,11 @@ class RegistryService:
         """Update an existing MCP server registration.
 
         Raises:
-            KeyError: if no server with the given slug exists.
-            ValueError: if the updated URL fails validation.
+            KeyError:   if no server with the given slug exists.
+            ValueError: if the updated URL fails validation, the
+                        auth_mode/service-token invariant is violated, or the new
+                        slug collides with another server.
+            SlugConflictError: if the new slug already belongs to another server.
         """
         server = await self._repo.get_by_slug(DEFAULT_TENANT_ID, slug)
         if server is None:
@@ -87,8 +90,25 @@ class RegistryService:
                 self._settings.environment,
             )
 
-        server = await self._repo.update(server, command)
-        await self._session.commit()
+        # Revalidate the auth_mode / service-token invariant against the merged
+        # state: a server must not end up in service_token mode without a token
+        # env var after the update is applied.
+        final_auth_mode = command.auth_mode if command.auth_mode is not None else server.auth_mode
+        final_token_env = (
+            command.service_token_env_var
+            if command.service_token_env_var is not None
+            else server.service_token_env_var
+        )
+        if final_auth_mode == ServerAuthMode.SERVICE_TOKEN and not final_token_env:
+            raise ValueError("service_token_env_var is required when auth_mode is 'service_token'")
+
+        try:
+            server = await self._repo.update(server, command)
+            await self._session.commit()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise SlugConflictError(f"A server with slug '{command.slug}' already exists") from exc
+
         return ServerView.model_validate(server)
 
     async def delete(self, slug: str) -> None:

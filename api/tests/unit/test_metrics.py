@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Histogram
 
-
 # ---------------------------------------------------------------------------
 # Module-level metrics — label cardinality and increment smoke tests
 # ---------------------------------------------------------------------------
@@ -19,9 +18,7 @@ async def test_requests_total_accepts_correct_labels() -> None:
     before = REQUESTS_TOTAL.labels(
         server_slug="test-server", method="tools/list", status_code="200"
     )._value.get()
-    REQUESTS_TOTAL.labels(
-        server_slug="test-server", method="tools/list", status_code="200"
-    ).inc()
+    REQUESTS_TOTAL.labels(server_slug="test-server", method="tools/list", status_code="200").inc()
     after = REQUESTS_TOTAL.labels(
         server_slug="test-server", method="tools/list", status_code="200"
     )._value.get()
@@ -56,13 +53,9 @@ async def test_rate_limit_rejections_accepts_correct_labels() -> None:
     from app.observability.metrics import RATE_LIMIT_REJECTIONS
 
     for scope in ("pre_auth", "per_subject"):
-        before = RATE_LIMIT_REJECTIONS.labels(
-            server_slug="test-server", scope=scope
-        )._value.get()
+        before = RATE_LIMIT_REJECTIONS.labels(server_slug="test-server", scope=scope)._value.get()
         RATE_LIMIT_REJECTIONS.labels(server_slug="test-server", scope=scope).inc()
-        after = RATE_LIMIT_REJECTIONS.labels(
-            server_slug="test-server", scope=scope
-        )._value.get()
+        after = RATE_LIMIT_REJECTIONS.labels(server_slug="test-server", scope=scope)._value.get()
         assert after == before + 1.0
 
 
@@ -111,9 +104,7 @@ async def test_metrics_response_body_contains_known_metric_name() -> None:
     from app.observability.metrics import REQUESTS_TOTAL, metrics_response
 
     # Ensure the metric has been touched so it appears in the output.
-    REQUESTS_TOTAL.labels(
-        server_slug="sentinel", method="resources/list", status_code="404"
-    ).inc()
+    REQUESTS_TOTAL.labels(server_slug="sentinel", method="resources/list", status_code="404").inc()
 
     body, _ = metrics_response()
 

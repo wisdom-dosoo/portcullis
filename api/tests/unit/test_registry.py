@@ -32,6 +32,7 @@ def _make_settings(
         environment=environment,
         upstream_allowed_hosts=allowed_hosts,
         api_key_pepper=pepper,
+        cors_allowed_origins=("https://example.com",),
     )
 
 

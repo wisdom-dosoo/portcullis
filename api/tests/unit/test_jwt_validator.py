@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID
 
 import pytest
-from authlib.jose import JsonWebKey, jwt as jose_jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
+from authlib.jose import JsonWebKey
+from authlib.jose import jwt as jose_jwt
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 import app.auth.jwt_validator as jwt_validator_module
 from app.auth.jwt_validator import DEFAULT_TENANT_ID, verify_jwt
@@ -169,12 +169,14 @@ class TestVerifyJwtFailures:
         token = _make_token(sub="user-abc-123", exp_offset=-3600)
         settings = _make_settings()
 
-        with patch(
-            "app.auth.jwt_validator.httpx.AsyncClient",
-            _make_mock_httpx_client(_JWKS_DICT),
+        with (
+            patch(
+                "app.auth.jwt_validator.httpx.AsyncClient",
+                _make_mock_httpx_client(_JWKS_DICT),
+            ),
+            pytest.raises(ValueError, match="invalid bearer token"),
         ):
-            with pytest.raises(ValueError, match="invalid bearer token"):
-                await verify_jwt(raw_token=token, settings=settings)
+            await verify_jwt(raw_token=token, settings=settings)
 
     @pytest.mark.asyncio
     async def test_wrong_audience_raises_value_error(self) -> None:
@@ -182,12 +184,14 @@ class TestVerifyJwtFailures:
         token = _make_token(sub="user-abc-123", aud="wrong-audience")
         settings = _make_settings(audience="portcullis")
 
-        with patch(
-            "app.auth.jwt_validator.httpx.AsyncClient",
-            _make_mock_httpx_client(_JWKS_DICT),
+        with (
+            patch(
+                "app.auth.jwt_validator.httpx.AsyncClient",
+                _make_mock_httpx_client(_JWKS_DICT),
+            ),
+            pytest.raises(ValueError, match="invalid bearer token"),
         ):
-            with pytest.raises(ValueError, match="invalid bearer token"):
-                await verify_jwt(raw_token=token, settings=settings)
+            await verify_jwt(raw_token=token, settings=settings)
 
     @pytest.mark.asyncio
     async def test_wrong_issuer_raises_value_error(self) -> None:
@@ -195,12 +199,14 @@ class TestVerifyJwtFailures:
         token = _make_token(sub="user-abc-123", iss="https://evil.example.com/")
         settings = _make_settings(issuer="https://example.com/")
 
-        with patch(
-            "app.auth.jwt_validator.httpx.AsyncClient",
-            _make_mock_httpx_client(_JWKS_DICT),
+        with (
+            patch(
+                "app.auth.jwt_validator.httpx.AsyncClient",
+                _make_mock_httpx_client(_JWKS_DICT),
+            ),
+            pytest.raises(ValueError, match="invalid bearer token"),
         ):
-            with pytest.raises(ValueError, match="invalid bearer token"):
-                await verify_jwt(raw_token=token, settings=settings)
+            await verify_jwt(raw_token=token, settings=settings)
 
     @pytest.mark.asyncio
     async def test_missing_sub_claim_raises_value_error(self) -> None:
@@ -208,12 +214,14 @@ class TestVerifyJwtFailures:
         token = _make_token(include_sub=False)
         settings = _make_settings()
 
-        with patch(
-            "app.auth.jwt_validator.httpx.AsyncClient",
-            _make_mock_httpx_client(_JWKS_DICT),
+        with (
+            patch(
+                "app.auth.jwt_validator.httpx.AsyncClient",
+                _make_mock_httpx_client(_JWKS_DICT),
+            ),
+            pytest.raises(ValueError, match="invalid bearer token"),
         ):
-            with pytest.raises(ValueError, match="invalid bearer token"):
-                await verify_jwt(raw_token=token, settings=settings)
+            await verify_jwt(raw_token=token, settings=settings)
 
     @pytest.mark.asyncio
     async def test_jwks_fetch_failure_raises_value_error(self) -> None:
@@ -229,9 +237,11 @@ class TestVerifyJwtFailures:
         token = _make_token(sub="user-abc-123")
         settings = _make_settings()
 
-        with patch("app.auth.jwt_validator.httpx.AsyncClient", mock_cls):
-            with pytest.raises(ValueError, match="invalid bearer token"):
-                await verify_jwt(raw_token=token, settings=settings)
+        with (
+            patch("app.auth.jwt_validator.httpx.AsyncClient", mock_cls),
+            pytest.raises(ValueError, match="invalid bearer token"),
+        ):
+            await verify_jwt(raw_token=token, settings=settings)
 
     @pytest.mark.asyncio
     async def test_jwt_auth_not_configured_raises_value_error(self) -> None:
@@ -247,12 +257,14 @@ class TestVerifyJwtFailures:
         """A non-JWT string (not a valid compact serialization) must be rejected."""
         settings = _make_settings()
 
-        with patch(
-            "app.auth.jwt_validator.httpx.AsyncClient",
-            _make_mock_httpx_client(_JWKS_DICT),
+        with (
+            patch(
+                "app.auth.jwt_validator.httpx.AsyncClient",
+                _make_mock_httpx_client(_JWKS_DICT),
+            ),
+            pytest.raises(ValueError, match="invalid bearer token"),
         ):
-            with pytest.raises(ValueError, match="invalid bearer token"):
-                await verify_jwt(raw_token="this.is.not.a.jwt", settings=settings)
+            await verify_jwt(raw_token="this.is.not.a.jwt", settings=settings)
 
     @pytest.mark.asyncio
     async def test_wrong_signing_key_raises_value_error(self) -> None:
@@ -261,9 +273,7 @@ class TestVerifyJwtFailures:
         other_private = rsa.generate_private_key(
             public_exponent=65537, key_size=2048, backend=default_backend()
         )
-        other_jwk_private = JsonWebKey.import_key(
-            other_private, {"kty": "RSA", "kid": "other-key"}
-        )
+        other_jwk_private = JsonWebKey.import_key(other_private, {"kty": "RSA", "kid": "other-key"})
 
         # Sign with the other key but present the original JWKS (which doesn't include it)
         now = int(time.time())
@@ -280,12 +290,14 @@ class TestVerifyJwtFailures:
 
         settings = _make_settings()
 
-        with patch(
-            "app.auth.jwt_validator.httpx.AsyncClient",
-            _make_mock_httpx_client(_JWKS_DICT),
+        with (
+            patch(
+                "app.auth.jwt_validator.httpx.AsyncClient",
+                _make_mock_httpx_client(_JWKS_DICT),
+            ),
+            pytest.raises(ValueError, match="invalid bearer token"),
         ):
-            with pytest.raises(ValueError, match="invalid bearer token"):
-                await verify_jwt(raw_token=token, settings=settings)
+            await verify_jwt(raw_token=token, settings=settings)
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,4 @@
-"""Integration tests for atomic Redis rate limiting.
-
-These tests require a running Redis instance (e.g. via Docker).
-Skip them in CI environments without Docker.
-"""
+"""Integration tests for atomic Redis rate limiting against a real Redis container."""
 
 from __future__ import annotations
 
@@ -11,31 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-# All tests in this module require Docker / a live Redis
-pytestmark = pytest.mark.skip(reason="requires Docker")
-
-
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
-REDIS_URL = "redis://localhost:6379/15"  # isolated test DB
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-async def redis_client():
-    """Provide a clean Redis client connected to the test database."""
-    from redis.asyncio import Redis
-
-    client: Redis = Redis.from_url(REDIS_URL)
-    await client.flushdb()
-    try:
-        yield client
-    finally:
-        await client.flushdb()
-        await client.aclose()
 
 
 # ---------------------------------------------------------------------------

@@ -135,7 +135,10 @@ async def verify_key(
     # Update last_used_at sequentially — sharing the session with create_task
     # causes concurrent asyncpg operations on the same connection, which
     # raises InterfaceError.  The extra ~1 ms is negligible next to Argon2.
+    # Commit explicitly: without it the update is rolled back when the request
+    # session closes and usage tracking would silently never persist.
     await repo.update_last_used(api_key.id)
+    await session.commit()
 
     return subject
 

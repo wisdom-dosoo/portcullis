@@ -15,5 +15,5 @@ COPY deploy/entrypoint.sh ./entrypoint.sh
 RUN chmod +x entrypoint.sh && chown -R portcullis:portcullis /app
 USER portcullis
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD wget -qO- http://localhost:8080/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD python -c "import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8080/healthz', timeout=5); sys.exit(0 if 200 <= r.status < 400 else 1)"
 ENTRYPOINT ["./entrypoint.sh"]

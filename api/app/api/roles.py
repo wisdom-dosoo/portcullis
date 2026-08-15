@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_session
 from app.auth.dependencies import admin_subject, authenticated_subject
 from app.auth.subject import Subject
+from app.models.orm import SubjectType
 from app.models.schemas import (
     RoleBindingCreate,
     RoleBindingView,
@@ -19,6 +20,7 @@ from app.models.schemas import (
     ToolPermissionCreate,
     ToolPermissionView,
 )
+from app.repositories.api_keys import ApiKeyRepository
 from app.repositories.rbac import RbacRepository
 
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -57,11 +59,28 @@ async def create_binding(
     subject: Annotated[Subject, Depends(admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> RoleBindingView:
-    """Bind an API key subject to a role (admin only)."""
+    """Bind a subject to a role (admin only).
+
+    API-key bindings are validated against a key that belongs to the same
+    tenant, so a cross-tenant or non-existent key cannot be bound.
+    """
     repo = RbacRepository(session)
     role = await repo.get_role(tenant_id=subject.tenant_id, role_id=role_id)
     if role is None:
         raise HTTPException(status_code=404, detail="Role not found")
+
+    if body.subject_type is SubjectType.API_KEY:
+        try:
+            key_id = UUID(body.subject_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="subject_id must be a valid API key UUID"
+            ) from exc
+        api_keys = ApiKeyRepository(session)
+        api_key = await api_keys.get_by_id(key_id, subject.tenant_id)
+        if api_key is None:
+            raise HTTPException(status_code=422, detail="API key not found in tenant")
+
     binding = await repo.create_binding(
         role_id=role_id,
         subject_id=body.subject_id,

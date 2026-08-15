@@ -6,8 +6,8 @@ import asyncio
 import time
 
 import httpx
-from authlib.jose import JsonWebKey, jwt as jose_jwt
-from authlib.jose.errors import JoseError
+from authlib.jose import JsonWebKey
+from authlib.jose import jwt as jose_jwt
 
 from app.auth.subject import Subject
 from app.config import Settings
@@ -38,7 +38,7 @@ async def _fetch_jwks(url: str) -> dict:
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
-    except Exception:
+    except Exception:  # noqa: BLE001 - convert any failure to a uniform opaque error
         raise ValueError("invalid bearer token")
 
 
@@ -48,8 +48,7 @@ async def _get_jwks(settings: Settings) -> dict:
         now = time.monotonic()
         fetched_at = _jwks_cache.get("fetched_at")
         if (
-            fetched_at is None
-            or (now - fetched_at) >= settings.jwt_jwks_cache_ttl_seconds  # type: ignore[operator]
+            fetched_at is None or (now - fetched_at) >= settings.jwt_jwks_cache_ttl_seconds  # type: ignore[operator]
         ):
             jwks_data = await _fetch_jwks(settings.jwt_jwks_url)  # type: ignore[arg-type]
             _jwks_cache["keys"] = jwks_data
@@ -111,5 +110,5 @@ async def verify_jwt(raw_token: str, settings: Settings) -> Subject:
         if str(exc) in {"invalid bearer token", "JWT auth is not configured"}:
             raise
         raise ValueError("invalid bearer token") from exc
-    except Exception:
+    except Exception:  # noqa: BLE001 - sign decode/serialization failures uniformly
         raise ValueError("invalid bearer token")

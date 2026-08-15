@@ -46,9 +46,7 @@ def upgrade() -> None:
     op.drop_constraint("uq_role_bindings_role_id", "role_bindings", type_="unique")
 
     # Foreign key to api_keys.id
-    op.drop_constraint(
-        "fk_role_bindings_subject_id_api_keys", "role_bindings", type_="foreignkey"
-    )
+    op.drop_constraint("fk_role_bindings_subject_id_api_keys", "role_bindings", type_="foreignkey")
 
     # Index on subject_id
     op.drop_index("ix_role_bindings_subject_id", table_name="role_bindings")
@@ -91,7 +89,8 @@ def upgrade() -> None:
     # 6. Create the audit_logs table via raw SQL to avoid SQLAlchemy
     #    auto-creating the subject_type enum which already exists in the DB.
     # -------------------------------------------------------------------------
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         CREATE TABLE audit_logs (
             id          UUID        PRIMARY KEY,
             tenant_id   UUID,
@@ -107,7 +106,8 @@ def upgrade() -> None:
             detail      JSONB               NOT NULL DEFAULT '{}',
             created_at  TIMESTAMPTZ         NOT NULL DEFAULT now()
         )
-    """))
+    """)
+    )
 
     # Composite index for the primary query pattern: per-tenant reverse-chron.
     op.create_index(

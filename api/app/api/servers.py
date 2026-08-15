@@ -75,6 +75,8 @@ async def update_server(
         return await svc.update(slug, body)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SlugConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

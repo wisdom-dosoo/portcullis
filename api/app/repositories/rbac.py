@@ -113,11 +113,22 @@ class RbacRepository:
         )
         return cursor.rowcount > 0
 
-    async def get_permissions_for_subject(self, subject_id: str) -> list[ToolPermission]:
+    async def get_permissions_for_subject(
+        self,
+        tenant_id: UUID,
+        subject_type: SubjectType,
+        subject_id: str,
+    ) -> list[ToolPermission]:
         """Return all tool permissions that apply to the given subject.
 
-        Works for both API-key subjects (UUID as string) and OAuth subjects
-        (JWT sub claim).  The join matches on the TEXT subject_id column.
+        Scope is enforced on all three identity dimensions so API-key UUIDs
+        and OAuth ``sub`` claims (which share the TEXT subject_id column)
+        cannot collide across tenants or identity types.
+
+        Args:
+            tenant_id:    Tenant the subject belongs to.
+            subject_type: Identity type (API_KEY or OAUTH_SUBJECT).
+            subject_id:   Subject string (API-key UUID or JWT sub claim).
         """
         result = await self._session.scalars(
             select(ToolPermission)
@@ -125,6 +136,8 @@ class RbacRepository:
             .join(
                 RoleBinding,
                 (RoleBinding.role_id == Role.id)
+                & (Role.tenant_id == tenant_id)
+                & (RoleBinding.subject_type == subject_type)
                 & (RoleBinding.subject_id == subject_id),
             )
         )

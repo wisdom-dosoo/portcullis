@@ -44,7 +44,8 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: alembic upgrade head
       - run: pytest tests/unit tests/contract -q --cov=app --cov-fail-under=80
-      - run: pytest tests/integration tests/e2e -q --ignore=tests/integration --ignore=tests/e2e || true
+      - run: pytest tests/integration -q
+      - run: pytest tests/e2e -q
 
   security:
     runs-on: ubuntu-latest

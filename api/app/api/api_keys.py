@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, get_settings_dep
 from app.auth.api_keys import issue_key, revoke_key
-from app.auth.dependencies import admin_subject, authenticated_subject
+from app.auth.dependencies import admin_subject
 from app.auth.subject import Subject
 from app.config import Settings
 from app.gateway.registry import DEFAULT_TENANT_ID
@@ -50,9 +50,9 @@ async def create_api_key(
 @router.get("", response_model=list[ApiKeyView])
 async def list_api_keys(
     session: Annotated[AsyncSession, Depends(get_session)],
-    _subject: Annotated[Subject, Depends(authenticated_subject)],
+    _subject: Annotated[Subject, Depends(admin_subject)],
 ) -> list[ApiKeyView]:
-    """Return all active API keys for the tenant."""
+    """Return all active API keys for the tenant. Requires admin scope (least privilege)."""
     repo = ApiKeyRepository(session)
     keys = await repo.list_active(DEFAULT_TENANT_ID)
     return [ApiKeyView.model_validate(k) for k in keys]

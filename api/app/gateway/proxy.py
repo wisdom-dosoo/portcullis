@@ -10,6 +10,10 @@ from app.config import Settings
 class UpstreamError(Exception):
     """Raised when the upstream MCP server is unreachable or times out."""
 
+    def __init__(self, message: str, *, status_code_override: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code_override = status_code_override
+
 
 class McpProxy:
     """Thin HTTP layer that forwards JSON-RPC requests to an upstream MCP server."""
@@ -18,6 +22,18 @@ class McpProxy:
         self._client = http_client
         self._settings = settings
 
+    def _build_timeout(self) -> httpx.Timeout:
+        return httpx.Timeout(
+            connect=self._settings.upstream_connect_timeout_seconds,
+            read=self._settings.upstream_read_timeout_seconds,
+            write=self._settings.upstream_connect_timeout_seconds,
+            pool=self._settings.upstream_connect_timeout_seconds,
+        )
+
+    @staticmethod
+    def _build_url(upstream_url: str, path: str) -> str:
+        return upstream_url.rstrip("/") + path
+
     async def forward(
         self,
         upstream_url: str,
@@ -25,15 +41,20 @@ class McpProxy:
         method: str,
         headers: dict[str, str],
         body: bytes,
+        *,
+        stream: bool = False,
     ) -> httpx.Response:
         """Forward the request to the upstream MCP server.
 
         Args:
             upstream_url: Base URL of the upstream server (no trailing slash).
             path:         Path component to append (e.g. "/mcp" or "").
-            method:       HTTP method, typically "POST".
+            method:       HTTP method, typically "POST" or "GET".
             headers:      Pre-sanitized headers dict.
-            body:         Raw request body bytes.
+            body:         Raw request body bytes (empty for GET).
+            stream:       When True, returns a live streaming response that the
+                          caller must consume (via ``aiter_bytes``) and close
+                          (via ``aclose``).  When False, buffers the full body.
 
         Returns:
             The raw httpx.Response from upstream.
@@ -41,16 +62,23 @@ class McpProxy:
         Raises:
             UpstreamError: On timeout or connection failure.
         """
-        url = upstream_url.rstrip("/") + path
-
-        timeout = httpx.Timeout(
-            connect=self._settings.upstream_connect_timeout_seconds,
-            read=self._settings.upstream_read_timeout_seconds,
-            write=self._settings.upstream_connect_timeout_seconds,
-            pool=self._settings.upstream_connect_timeout_seconds,
-        )
+        url = self._build_url(upstream_url, path)
+        timeout = self._build_timeout()
 
         try:
+            if stream:
+                request = self._client.build_request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    content=body,
+                )
+                return await self._client.send(
+                    request,
+                    timeout=timeout,
+                    stream=True,
+                    follow_redirects=False,
+                )
             response = await self._client.request(
                 method=method,
                 url=url,

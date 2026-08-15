@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     health_check_failure_threshold: PositiveInt = 3
     rate_limit_default: str = "100/minute"
     auth_rate_limit_default: str = "20/minute"
+    max_request_body_bytes: PositiveInt = 1_048_576
 
     # OAuth 2.1 / JWKS — all optional; JWT auth is disabled when jwks_url is unset
     jwt_jwks_url: str | None = None
@@ -99,6 +100,20 @@ class Settings(BaseSettings):
             and self.api_key_pepper == DEVELOPMENT_API_KEY_PEPPER
         ):
             raise ValueError("API_KEY_PEPPER must be changed for production")
+        return self
+
+    @model_validator(mode="after")
+    def reject_wildcard_cors_in_production(self) -> Self:
+        """Never allow a wildcard CORS origin with credentials in production.
+
+        ``allow_origins=("*")`` combined with ``allow_credentials=True`` is
+        invalid browser behavior AND lets any origin issue credentialed requests.
+        """
+        if self.environment is Environment.PRODUCTION:
+            if "*" in self.cors_allowed_origins:
+                raise ValueError("CORS_ALLOWED_ORIGINS must not include '*' in production")
+            if not self.cors_allowed_origins:
+                raise ValueError("CORS_ALLOWED_ORIGINS must list explicit origins in production")
         return self
 
 

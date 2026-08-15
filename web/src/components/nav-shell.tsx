@@ -105,12 +105,9 @@ function ContextSwitcher({ current, roles }: { current: NavContext; roles: RoleV
   const meta = CONTEXT_META[current];
   const Icon = meta.icon;
 
-  // Derive available contexts from backend roles; always include current + org-admin
-  const availableContexts = new Set<NavContext>(["org-admin", current]);
+  // Derive available contexts from backend roles; always include current
+  const availableContexts = new Set<NavContext>([current]);
   roles.forEach((r) => availableContexts.add(roleToContext(r.name)));
-  // Always show all 3 for usability
-  availableContexts.add("platform-admin");
-  availableContexts.add("developer");
 
   function switchTo(ctx: NavContext) {
     setOpen(false);

@@ -33,7 +33,11 @@ async def filter_tools_list(
         return copy.deepcopy(response_body)
 
     repo = RbacRepository(session)
-    permissions = await repo.get_permissions_for_subject(subject.subject_id)
+    permissions = await repo.get_permissions_for_subject(
+        subject.tenant_id,
+        subject.subject_type,
+        subject.subject_id,
+    )
 
     tools = result_key["tools"]
     allowed_tools = [

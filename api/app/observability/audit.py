@@ -51,7 +51,7 @@ async def record_event(
                 detail=detail,
             )
             await session.commit()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - audit writes must never break the request
         logger.error(
             "audit.record_event.failed",
             event_type=event_type,
