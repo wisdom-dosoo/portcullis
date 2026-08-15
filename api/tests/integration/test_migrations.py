@@ -61,3 +61,34 @@ async def test_migration_creates_all_tables_and_seeds_default_tenant(
             assert tenant_slug == DEFAULT_TENANT_SLUG
     finally:
         await engine.dispose()
+
+
+@pytest.mark.integration
+async def test_platform_admin_column_and_audit_enum_exist(
+    postgres_container: str,
+) -> None:
+    """v0.4 adds users.is_platform_admin and the platform_admin_granted audit value."""
+    alembic_cfg = Config("alembic.ini")
+    alembic_cfg.set_main_option("sqlalchemy.url", postgres_container)
+    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+
+    engine = create_async_engine(postgres_container, pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            columns = {
+                col["name"]
+                for col in await conn.run_sync(
+                    lambda sync_conn: inspect(sync_conn).get_columns("users")
+                )
+            }
+            assert "is_platform_admin" in columns
+
+            values = await conn.scalars(
+                text(
+                    "SELECT enum_range(NULL::audit_event_type)"
+                )
+            )
+            enum_text = str(values.first())
+            assert "platform_admin_granted" in enum_text, enum_text
+    finally:
+        await engine.dispose()
