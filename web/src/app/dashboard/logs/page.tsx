@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   Search,
   Filter,
@@ -51,8 +52,8 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function copyToClipboard(text: string) {
-  navigator.clipboard.writeText(text).catch(() => { /* noop */ });
+function copyLog(text: string) {
+  copyToClipboard(text);
 }
 
 /* ── badge components ────────────────────────────────────────────────────── */
@@ -130,7 +131,7 @@ function DetailDrawer({ log, onClose }: { log: AuditLogView; onClose: () => void
   const [expandedSection, setExpandedSection] = useState<string | null>("trace");
 
   function copy(text: string, field: string) {
-    copyToClipboard(text);
+    copyLog(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
   }

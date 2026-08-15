@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   CheckCircle2, Circle, ChevronRight, ChevronLeft, Server, Key,
   Shield, Zap, Eye, EyeOff, Copy, ExternalLink, Loader2, CheckCheck,
@@ -158,7 +159,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       type="button"
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      onClick={() => { copyToClipboard(text).then((ok) => { if (ok) { setCopied(true); setTimeout(() => setCopied(false), 2000); } }); }}
       className="p-1.5 rounded-lg transition-colors hover:bg-white/5 flex-shrink-0"
       style={{ color: copied ? "#2DD4A7" : "var(--pc-muted)" }}
     >

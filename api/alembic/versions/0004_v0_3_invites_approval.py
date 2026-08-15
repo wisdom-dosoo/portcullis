@@ -55,18 +55,12 @@ def upgrade() -> None:
     )
 
     # -------------------------------------------------------------------------
-    # 2. Invitation status enum.
-    # -------------------------------------------------------------------------
-    sa.Enum(
-        "active",
-        "used",
-        "revoked",
-        "expired",
-        name="invitation_status",
-    ).create(op.get_bind(), checkfirst=True)
-
-    # -------------------------------------------------------------------------
-    # 3. Invitations table.
+    # 2. Invitations table.
+    #
+    # Note: the invitation_status enum is created implicitly by create_table()
+    # below via the `status` column's named type.  Do NOT create it explicitly
+    # here — doing so makes create_table() re-emit CREATE TYPE and fail with
+    # DuplicateObjectError.
     # -------------------------------------------------------------------------
     op.create_table(
         "invitations",

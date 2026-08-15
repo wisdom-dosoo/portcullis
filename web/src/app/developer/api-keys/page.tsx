@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Key, Plus, Copy, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   useListApiKeysV1ApiKeysGet,
@@ -70,11 +71,13 @@ export default function DeveloperApiKeysPage() {
     }
   }
 
-  function copyKey() {
+  async function copyKey() {
     if (!newKey) return;
-    navigator.clipboard.writeText(newKey);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const ok = await copyToClipboard(newKey);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   }
 
   function closeDialog() {

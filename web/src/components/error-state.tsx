@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { copyToClipboard } from "@/lib/clipboard";
 import { AlertCircle, RefreshCw, Settings, ChevronDown, ChevronUp, BookOpen, Copy, Check } from "lucide-react";
 
 interface ErrorStateProps {
@@ -31,7 +32,8 @@ export function ErrorState({
 
   function copyTrace() {
     if (!traceId) return;
-    navigator.clipboard.writeText(traceId).then(() => {
+    copyToClipboard(traceId).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     });

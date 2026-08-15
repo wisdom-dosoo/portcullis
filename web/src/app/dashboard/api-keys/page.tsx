@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   Key,
   Plus,
@@ -716,10 +717,12 @@ function KeyRevealScreen({
     python: { label: "Python", icon: <Code2 size={13} />, code: pythonSnippet, lang: "python" },
   };
 
-  function copy(text: string, type: "key" | "env" | "curl" | "python") {
-    navigator.clipboard.writeText(text);
-    setCopied(type);
-    setTimeout(() => setCopied(null), 2000);
+  async function copy(text: string, type: "key" | "env" | "curl" | "python") {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(type);
+      setTimeout(() => setCopied(null), 2000);
+    }
   }
 
   function downloadEnv() {

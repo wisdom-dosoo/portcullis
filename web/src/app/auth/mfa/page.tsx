@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   Shield, Copy, Download, CheckCircle2, AlertTriangle, RefreshCw,
 } from "lucide-react";
@@ -183,10 +184,12 @@ export default function MFASetupPage() {
   const [downloaded, setDownloaded] = useState(false);
   const [revokeOther, setRevokeOther] = useState(false);
 
-  function copyToClipboard(text: string, id: string) {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
+  async function handleCopy(text: string, id: string) {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    }
   }
 
   function downloadCodes() {
@@ -262,7 +265,7 @@ export default function MFASetupPage() {
                     <code className="flex-1 text-sm font-mono tracking-widest" style={{ color: "var(--pc-primary)" }}>{SETUP_KEY}</code>
                     <button
                       type="button"
-                      onClick={() => copyToClipboard(SETUP_KEY.replace(/\s/g, ""), "key")}
+                      onClick={() => handleCopy(SETUP_KEY.replace(/\s/g, ""), "key")}
                       className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
                       style={{ color: copied === "key" ? "#2DD4A7" : "var(--pc-muted)" }}
                     >
@@ -368,7 +371,7 @@ export default function MFASetupPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(RECOVERY_CODES.join("\n"), "codes")}
+                  onClick={() => handleCopy(RECOVERY_CODES.join("\n"), "codes")}
                   className="w-full text-xs py-2 rounded-lg border flex items-center justify-center gap-2 transition-colors hover:bg-white/5"
                   style={{ borderColor: "var(--pc-border)", color: copied === "codes" ? "#2DD4A7" : "var(--pc-muted)" }}
                 >

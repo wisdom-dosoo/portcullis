@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   Users,
   Plus,
@@ -472,9 +473,10 @@ function InviteMemberDialog({
     }, 300);
   }
 
-  function copyKey(key: string) {
-    navigator.clipboard.writeText(key);
-    toast.success("Key copied to clipboard");
+  async function copyKey(key: string) {
+    const ok = await copyToClipboard(key);
+    if (ok) toast.success("Key copied to clipboard");
+    else toast.error("Copy failed — clipboard unavailable");
   }
 
   return (
@@ -757,10 +759,11 @@ function InviteCodeDialog({
     setExpiryDays("30");
   }
 
-  function copyCode() {
+  async function copyCode() {
     if (!created?.code) return;
-    navigator.clipboard.writeText(created.code);
-    toast.success("Code copied to clipboard");
+    const ok = await copyToClipboard(created.code);
+    if (ok) toast.success("Code copied to clipboard");
+    else toast.error("Copy failed — clipboard unavailable");
   }
 
   return (

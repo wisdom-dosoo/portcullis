@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   Play,
   Loader2,
@@ -498,7 +499,7 @@ function CodeModal({
     generateTypeScript(slug, tool.name, args);
 
   function copy() {
-    navigator.clipboard.writeText(code).then(() => toast.success("Copied to clipboard"));
+    copyToClipboard(code).then((ok) => { if (ok) toast.success("Copied to clipboard"); });
   }
 
   const langs: { id: SnippetLang; label: string }[] = [
@@ -723,7 +724,7 @@ function PlaygroundInner() {
       args: btoa(JSON.stringify(args)).replace(/=+$/, ""),
     });
     const url = `${window.location.origin}/dashboard/playground?${params}`;
-    navigator.clipboard.writeText(url).then(() => toast.success("Session URL copied to clipboard"));
+    copyToClipboard(url).then((ok) => { if (ok) toast.success("Session URL copied to clipboard"); });
   }
 
   /* keyboard shortcut: Cmd/Ctrl+Enter to run */
@@ -1239,7 +1240,7 @@ function PlaygroundInner() {
                     {compareMode ? "Latest Result" : "Result"}
                   </span>
                   <button
-                    onClick={() => { navigator.clipboard.writeText(JSON.stringify(result.raw, null, 2)); toast.success("Copied"); }}
+                    onClick={() => { copyToClipboard(JSON.stringify(result.raw, null, 2)).then((ok) => { if (ok) toast.success("Copied"); }); }}
                     style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: "var(--pc-muted)", fontSize: 11 }}
                   >
                     <Copy size={11} strokeWidth={2} /> Copy

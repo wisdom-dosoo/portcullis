@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   Rocket,
   Key,
@@ -32,9 +33,11 @@ function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    copyToClipboard(code).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   return (
