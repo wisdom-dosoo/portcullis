@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
     func,
 )
 from sqlalchemy import (
@@ -211,6 +213,12 @@ class User(UuidPrimaryKeyMixin, TimestampMixin, Base):
     org_name: Mapped[str | None] = mapped_column(String(200))
     intended_use: Mapped[str | None] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    is_platform_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
     approval_status: Mapped[UserApprovalStatus] = mapped_column(
         SqlEnum(
             UserApprovalStatus,
@@ -355,6 +363,7 @@ class ToolPermission(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
 
 class AuditEventType(StrEnum):
     AUTH_FAILURE = "auth_failure"
+    PLATFORM_ADMIN_GRANTED = "platform_admin_granted"
     RBAC_DENY = "rbac_deny"
     TOOL_CALL = "tool_call"
 
