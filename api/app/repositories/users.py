@@ -96,3 +96,20 @@ class UserRepository:
             )
         )
         return cursor.rowcount > 0
+
+    async def set_platform_admin(
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        flag: bool,
+    ) -> bool:
+        """Set a user's platform-admin flag; False if the user is missing."""
+        cursor: CursorResult[tuple[()]] = await self._session.execute(  # type: ignore[assignment]
+            update(User)
+            .where(
+                User.tenant_id == tenant_id,
+                User.id == user_id,
+            )
+            .values(is_platform_admin=flag)
+        )
+        return cursor.rowcount > 0
