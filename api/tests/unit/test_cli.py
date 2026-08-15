@@ -8,7 +8,7 @@ from uuid import UUID
 import pytest
 
 from app.auth.subject import IssuedKey
-from app.cli import _create_admin_key
+from app.cli import _bootstrap_admin, _create_admin_key
 
 TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
@@ -103,3 +103,66 @@ class TestCreateAdminKey:
         assert call_kwargs.kwargs.get("name") == "my-admin-key" or (
             len(call_kwargs.args) > 0 and call_kwargs.args[0] == "my-admin-key"
         )
+
+
+# ---------------------------------------------------------------------------
+# admin bootstrap
+# ---------------------------------------------------------------------------
+
+
+def _make_user_mock() -> MagicMock:
+    user = MagicMock()
+    user.id = UUID("00000000-0000-0000-0000-0000000000ab")
+    user.email = "owner@example.com"
+    return user
+
+
+class TestBootstrapAdmin:
+    @pytest.mark.asyncio
+    async def test_promotes_user_and_prints_token(self, capsys) -> None:
+        plaintext = "pk_abcdefgh_" + "a" * 43
+        issued = IssuedKey(
+            key_id=UUID("00000000-0000-0000-0000-000000000099"),
+            plaintext=plaintext,
+            prefix="abcdefgh",
+            scopes=frozenset(),
+        )
+        mock_runtime = _make_mock_runtime()
+        mock_user = _make_user_mock()
+
+        with (
+            patch("app.cli.Runtime.build", return_value=mock_runtime),
+            patch("app.cli.get_settings", return_value=MagicMock(api_key_pepper="test-pepper")),
+            patch("app.cli.UserRepository") as MockUsers,
+            patch("app.cli.AuditRepository") as MockAudit,
+            patch("app.cli.issue_key", new_callable=AsyncMock, return_value=issued) as mock_issue,
+        ):
+            repo = MockUsers.return_value
+            repo.get_by_email = AsyncMock(return_value=mock_user)
+            repo.set_platform_admin = AsyncMock(return_value=True)
+            audit = MockAudit.return_value
+            audit.create = AsyncMock(return_value=MagicMock())
+
+            await _bootstrap_admin("owner@example.com")
+
+        assert MockUsers.return_value.set_platform_admin.await_count == 1
+        audit.create.assert_awaited_once()
+        mock_issue.assert_awaited_once()
+        captured = capsys.readouterr()
+        assert captured.out.strip() == plaintext
+
+    @pytest.mark.asyncio
+    async def test_missing_user_raises_system_exit(self, capsys) -> None:
+        mock_runtime = _make_mock_runtime()
+
+        with (
+            patch("app.cli.Runtime.build", return_value=mock_runtime),
+            patch("app.cli.get_settings", return_value=MagicMock(api_key_pepper="test-pepper")),
+            patch("app.cli.UserRepository") as MockUsers,
+        ):
+            MockUsers.return_value.get_by_email = AsyncMock(return_value=None)
+
+            with pytest.raises(SystemExit):
+                await _bootstrap_admin("missing@example.com")
+
+        mock_runtime.close.assert_awaited_once()
