@@ -40,6 +40,38 @@ async def test_set_platform_admin_flips_flag(async_session: AsyncSession) -> Non
     assert user.is_platform_admin is True
 
 
+async def test_set_platform_admin_revokes_flag(async_session: AsyncSession) -> None:
+    user_id = await _seed_user(async_session, "revoked@example.com")
+    repo = UserRepository(async_session)
+
+    assert await repo.set_platform_admin(TENANT, user_id, True) is True
+    await async_session.commit()
+    await async_session.expire_all()
+    assert await repo.set_platform_admin(TENANT, user_id, False) is True
+    await async_session.commit()
+    await async_session.expire_all()
+
+    user = await repo.get_by_id(TENANT, user_id)
+    assert user is not None
+    assert user.is_platform_admin is False
+
+
+async def test_set_platform_admin_ignores_other_tenant_user(
+    async_session: AsyncSession,
+) -> None:
+    user_id = await _seed_user(async_session, "other-tenant@example.com")
+    repo = UserRepository(async_session)
+    other_tenant = UUID("22222222-2222-2222-2222-222222222222")
+
+    assert await repo.set_platform_admin(other_tenant, user_id, True) is False
+    await async_session.commit()
+    await async_session.expire_all()
+
+    user = await repo.get_by_id(TENANT, user_id)
+    assert user is not None
+    assert user.is_platform_admin is False
+
+
 async def test_set_platform_admin_false_for_missing_user(
     async_session: AsyncSession,
 ) -> None:
