@@ -37,7 +37,7 @@ def upgrade() -> None:
     # PG 12+ permits ALTER TYPE ADD VALUE inside a transaction as long as the
     # new value is not used within the same transaction block.
     op.execute(
-        sa.text("ALTER TYPE audit_event_type ADD VALUE 'platform_admin_granted'")
+        sa.text("ALTER TYPE audit_event_type ADD VALUE IF NOT EXISTS 'platform_admin_granted'")
     )
 
 

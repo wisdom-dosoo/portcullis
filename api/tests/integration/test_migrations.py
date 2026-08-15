@@ -83,11 +83,7 @@ async def test_platform_admin_column_and_audit_enum_exist(
             }
             assert "is_platform_admin" in columns
 
-            values = await conn.scalars(
-                text(
-                    "SELECT enum_range(NULL::audit_event_type)"
-                )
-            )
+            values = await conn.scalars(text("SELECT enum_range(NULL::audit_event_type)"))
             enum_text = str(values.first())
             assert "platform_admin_granted" in enum_text, enum_text
     finally:
