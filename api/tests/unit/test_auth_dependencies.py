@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from app.auth.dependencies import admin_subject, authenticated_subject, current_subject
 from app.auth.subject import Subject
-from app.models.orm import SubjectType
+from app.models.orm import SubjectType, UserApprovalStatus
 
 TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 PEPPER = "development-only-change-me"
@@ -189,3 +189,102 @@ class TestAdminSubject:
             await admin_subject(subject=subject)
 
         assert exc_info.value.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# tenant_subject
+# ---------------------------------------------------------------------------
+
+
+class TestTenantSubject:
+    @pytest.mark.asyncio
+    async def test_returns_subject_tenant_id(self) -> None:
+        from app.auth.dependencies import tenant_subject
+
+        subject = _make_subject(["read"])
+        assert await tenant_subject(subject=subject) == TENANT_ID
+
+
+# ---------------------------------------------------------------------------
+# platform_admin_subject
+# ---------------------------------------------------------------------------
+
+
+def _make_user_mock(*, flagged: bool, active: bool = True) -> MagicMock:
+    user = MagicMock()
+    user.is_active = active
+    user.approval_status = UserApprovalStatus.APPROVED
+    user.is_platform_admin = flagged
+    return user
+
+
+def _make_api_key_mock(*, user_id: UUID | None) -> MagicMock:
+    key = MagicMock()
+    key.user_id = user_id
+    return key
+
+
+class TestPlatformAdminSubject:
+    @pytest.mark.asyncio
+    async def test_api_key_not_user_bound_raises_401(self) -> None:
+        from app.auth.dependencies import platform_admin_subject
+
+        session = _make_mock_session()
+        subject = _make_subject(["admin"])
+
+        with (
+            patch("app.auth.dependencies.ApiKeyRepository") as MockKeys,
+            patch("app.auth.dependencies.UserRepository") as MockUsers,
+        ):
+            MockKeys.return_value.get_by_id = AsyncMock(
+                return_value=_make_api_key_mock(user_id=None)
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await platform_admin_subject(subject=subject, session=session)
+
+        assert exc_info.value.status_code == 401
+        MockUsers.return_value.get_by_id.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_user_not_flagged_raises_403(self) -> None:
+        from app.auth.dependencies import platform_admin_subject
+
+        session = _make_mock_session()
+        subject = _make_subject(["admin"])
+        user_id = uuid4()
+
+        with (
+            patch("app.auth.dependencies.ApiKeyRepository") as MockKeys,
+            patch("app.auth.dependencies.UserRepository") as MockUsers,
+        ):
+            MockKeys.return_value.get_by_id = AsyncMock(
+                return_value=_make_api_key_mock(user_id=user_id)
+            )
+            MockUsers.return_value.get_by_id = AsyncMock(
+                return_value=_make_user_mock(flagged=False)
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await platform_admin_subject(subject=subject, session=session)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail == "Platform admin required"
+
+    @pytest.mark.asyncio
+    async def test_flagged_user_passes(self) -> None:
+        from app.auth.dependencies import platform_admin_subject
+
+        session = _make_mock_session()
+        subject = _make_subject(["admin"])
+        user_id = uuid4()
+
+        with (
+            patch("app.auth.dependencies.ApiKeyRepository") as MockKeys,
+            patch("app.auth.dependencies.UserRepository") as MockUsers,
+        ):
+            MockKeys.return_value.get_by_id = AsyncMock(
+                return_value=_make_api_key_mock(user_id=user_id)
+            )
+            MockUsers.return_value.get_by_id = AsyncMock(return_value=_make_user_mock(flagged=True))
+            result = await platform_admin_subject(subject=subject, session=session)
+
+        assert result is subject

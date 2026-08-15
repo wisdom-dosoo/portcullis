@@ -14,6 +14,7 @@ from httpx import ASGITransport
 from app.auth.dependencies import authenticated_subject
 from app.main import create_app
 from app.models.orm import SubjectType, UserApprovalStatus
+from app.models.schemas import UserView
 
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 NOW = datetime.now(UTC)
@@ -30,6 +31,7 @@ def _make_orm_user(user_id: UUID | None = None) -> MagicMock:
     obj.password_hash = "$argon2id$dummy"
     obj.is_active = True
     obj.approval_status = UserApprovalStatus.APPROVED
+    obj.is_platform_admin = False
     obj.access_token = None
     obj.created_at = NOW
     obj.updated_at = NOW
@@ -295,3 +297,14 @@ class TestMe:
                 resp = await client.get("/auth/me")
 
         assert resp.status_code == 401
+
+
+class TestPlatformAdminMeSchema:
+    def test_platform_admin_me_shape(self) -> None:
+        from app.models.schemas import PlatformAdminMe
+
+        user = _make_orm_user()
+        user.is_platform_admin = True
+        me = PlatformAdminMe(is_platform_admin=True, user=UserView.model_validate(user))
+        assert me.is_platform_admin is True
+        assert me.user.is_platform_admin is True
