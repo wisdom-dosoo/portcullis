@@ -149,9 +149,17 @@ class UserView(BaseModel):
     intended_use: str | None
     is_active: bool
     approval_status: UserApprovalStatus
+    is_platform_admin: bool = False
     created_at: datetime
     updated_at: datetime
     access_token: str | None = None
+
+
+class PlatformAdminMe(BaseModel):
+    """Response for the platform-admin introspection endpoint."""
+
+    is_platform_admin: bool
+    user: UserView
 
 
 class AuthResponse(BaseModel):
