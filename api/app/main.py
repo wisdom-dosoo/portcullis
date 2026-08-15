@@ -168,6 +168,10 @@ def create_app() -> FastAPI:
 
     application.include_router(audit_router)
 
+    from app.api.platform import router as platform_router
+
+    application.include_router(platform_router)
+
     from app.gateway.router import router as proxy_router
 
     application.include_router(proxy_router)
