@@ -324,7 +324,7 @@ export const EMPTY_STATES = {
       "Revoke access instantly if someone leaves the organization",
       "Pending invites expire after 7 days for security",
     ],
-    primaryAction: { label: "Invite Member",    href: "/dashboard/team?invite=1" },
+    primaryAction: { label: "Invite Member",    href: "/dashboard/access-control?tab=members" },
     docsAction:    { label: "Team access guide", href: "/developer/docs#rbac", variant: "secondary" as const },
   },
 
@@ -337,7 +337,7 @@ export const EMPTY_STATES = {
       "Create custom roles to match your team's structure",
       "Roles compose with per-tool policies for fine-grained control",
     ],
-    primaryAction: { label: "Create Role",    href: "/dashboard/team?tab=roles&new=1" },
+    primaryAction: { label: "Create Role",    href: "/dashboard/access-control?tab=roles" },
     docsAction:    { label: "RBAC overview",  href: "/developer/docs#rbac", variant: "secondary" as const },
   },
 

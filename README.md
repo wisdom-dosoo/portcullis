@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-80%25%2B-yellow)
 ![MCP](https://img.shields.io/badge/MCP-2025--06--18-orange)
@@ -729,4 +729,8 @@ See `CONTRIBUTING.md` for the full workflow. In short: fork → feature branch �
 
 ## 24. License
 
-MIT — see `LICENSE`.
+Apache License 2.0 — see `LICENSE`.
+
+Product, licensing, and monetization strategy (including why every feature is
+open and how Portcullis Cloud is positioned): see `docs/strategy.md`.
+Governance and contribution: see `GOVERNANCE.md`.

@@ -44,6 +44,7 @@ def _make_user_mock() -> MagicMock:
     user.is_active = True
     user.approval_status = UserApprovalStatus.APPROVED
     user.is_platform_admin = True
+    user.org_role = None
     user.access_token = None
     user.created_at = NOW
     user.updated_at = NOW

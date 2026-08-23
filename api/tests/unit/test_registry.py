@@ -27,12 +27,15 @@ def _make_settings(
 ) -> Settings:
     # Production requires a non-default pepper — supply one for tests.
     pepper = "test-pepper-for-production-env-use-only"
+    # Production also requires MCP_ALLOWED_ORIGINS for DNS rebinding protection.
+    mcp_origins = "https://example.com,https://claude.ai" if environment is Environment.PRODUCTION else ""
     return Settings(
         _env_file=None,
         environment=environment,
-        upstream_allowed_hosts=allowed_hosts,
+        upstream_allowed_hosts=",".join(allowed_hosts),
         api_key_pepper=pepper,
-        cors_allowed_origins=("https://example.com",),
+        cors_allowed_origins="https://example.com",
+        mcp_allowed_origins=mcp_origins,
     )
 
 
@@ -49,6 +52,9 @@ def _make_fake_server(
     server.upstream_url = "http://localhost/mcp"
     server.transport = ServerTransport.STREAMABLE_HTTP
     server.auth_mode = auth_mode
+    server.ssl_ca = None
+    server.ssl_cert = None
+    server.ssl_key = None
     server.status = ServerStatus.ACTIVE
     server.health_check_path = "/health"
     server.consecutive_health_failures = 0
@@ -179,8 +185,12 @@ class TestRegistryServiceCreate:
 
         fake_server = _make_fake_server()
 
-        with patch("app.gateway.registry.ServerRepository") as MockRepo:
+        with (
+            patch("app.gateway.registry.ServerRepository") as MockRepo,
+            patch("app.gateway.registry.require_license", new_callable=AsyncMock),
+        ):
             mock_repo = MockRepo.return_value
+            mock_repo.count = AsyncMock(return_value=0)
             mock_repo.create = AsyncMock(return_value=fake_server)
 
             from app.gateway.registry import RegistryService
@@ -239,8 +249,12 @@ class TestRegistryServiceCreate:
         fake_server = _make_fake_server(auth_mode=ServerAuthMode.SERVICE_TOKEN)
         fake_server.service_token_env_var = None  # not in ServerView
 
-        with patch("app.gateway.registry.ServerRepository") as MockRepo:
+        with (
+            patch("app.gateway.registry.ServerRepository") as MockRepo,
+            patch("app.gateway.registry.require_license", new_callable=AsyncMock),
+        ):
             mock_repo = MockRepo.return_value
+            mock_repo.count = AsyncMock(return_value=0)
             mock_repo.create = AsyncMock(return_value=fake_server)
 
             from app.gateway.registry import RegistryService
@@ -264,8 +278,12 @@ class TestRegistryServiceCreate:
         session = AsyncMock()
         session.rollback = AsyncMock()
 
-        with patch("app.gateway.registry.ServerRepository") as MockRepo:
+        with (
+            patch("app.gateway.registry.ServerRepository") as MockRepo,
+            patch("app.gateway.registry.require_license", new_callable=AsyncMock),
+        ):
             mock_repo = MockRepo.return_value
+            mock_repo.count = AsyncMock(return_value=0)
             mock_repo.create = AsyncMock(side_effect=IntegrityError("duplicate", {}, Exception()))
 
             from app.gateway.registry import RegistryService

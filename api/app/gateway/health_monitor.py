@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.models.orm import McpServer, ServerStatus
+from app.observability.metrics import UPSTREAM_CONSECUTIVE_FAILURES, UPSTREAM_HEALTH
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +60,8 @@ class HealthMonitor:
 
         if healthy:
             server.consecutive_health_failures = 0
+            UPSTREAM_HEALTH.labels(server_slug=server.slug).set(1)
+            UPSTREAM_CONSECUTIVE_FAILURES.labels(server_slug=server.slug).set(0)
             if server.status == ServerStatus.UNHEALTHY:
                 server.status = ServerStatus.ACTIVE
                 logger.info(
@@ -67,6 +70,7 @@ class HealthMonitor:
                 )
         else:
             server.consecutive_health_failures += 1
+            UPSTREAM_CONSECUTIVE_FAILURES.labels(server_slug=server.slug).set(server.consecutive_health_failures)
             logger.warning(
                 "health_monitor.probe_failed",
                 slug=server.slug,
@@ -74,6 +78,7 @@ class HealthMonitor:
             )
             if server.consecutive_health_failures >= self._settings.health_check_failure_threshold:
                 server.status = ServerStatus.UNHEALTHY
+                UPSTREAM_HEALTH.labels(server_slug=server.slug).set(0)
                 logger.error(
                     "health_monitor.marked_unhealthy",
                     slug=server.slug,

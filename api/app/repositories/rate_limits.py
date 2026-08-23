@@ -22,6 +22,7 @@ class RateLimitRepository:
         policy = RateLimitPolicy(
             tenant_id=tenant_id,
             subject_id=data.subject_id,
+            subject_type=data.subject_type,
             server_pattern=data.server_pattern,
             tool_pattern=data.tool_pattern,
             algorithm=data.algorithm,

@@ -1,0 +1,324 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: portcullis-alerts
+  labels:
+    app.kubernetes.io/name: portcullis
+    prometheus: k8s
+    role: alert-rules
+spec:
+  groups:
+    - name: portcullis.gateway
+      interval: 30s
+      rules:
+        # High latency alerts
+        - alert: PortcullisHighLatencyP99
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(portcullis_request_duration_seconds_bucket[5m])) by (le, server_slug, method)
+            ) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: gateway
+          annotations:
+            summary: "Portcullis p99 latency high on {{ $labels.server_slug }}"
+            description: "p99 request latency is {{ $value | printf \"%.3f\" }}s for {{ $labels.server_slug }} (method: {{ $labels.method }})"
+            runbook_url: "https://github.com/wisdom-dosoo/portcullis/blob/main/docs/operations/runbooks/high-latency.md"
+
+        - alert: PortcullisHighLatencyP50
+          expr: |
+            histogram_quantile(0.50,
+              sum(rate(portcullis_request_duration_seconds_bucket[5m])) by (le, server_slug, method)
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: info
+            component: gateway
+          annotations:
+            summary: "Portcullis p50 latency elevated on {{ $labels.server_slug }}"
+            description: "p50 request latency is {{ $value | printf \"%.3f\" }}s for {{ $labels.server_slug }}"
+
+        # Error rate alerts
+        - alert: PortcullisHighErrorRate
+          expr: |
+            sum(rate(portcullis_requests_total{status_code=~"5.."}[5m])) by (server_slug)
+            /
+            sum(rate(portcullis_requests_total[5m])) by (server_slug)
+            > 0.05
+          for: 2m
+          labels:
+            severity: critical
+            component: gateway
+          annotations:
+            summary: "Portcullis error rate > 5% on {{ $labels.server_slug }}"
+            description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.server_slug }}. Check upstream health and logs."
+
+        - alert: PortcullisUpstreamUnavailable
+          expr: |
+            sum(rate(portcullis_requests_total{status_code="502"}[5m])) by (server_slug)
+            /
+            sum(rate(portcullis_requests_total[5m])) by (server_slug)
+            > 0.1
+          for: 1m
+          labels:
+            severity: critical
+            component: gateway
+          annotations:
+            summary: "Portcullis upstream unavailable for {{ $labels.server_slug }}"
+            description: "Upstream 502 rate is {{ $value | humanizePercentage }}. Upstream server may be down."
+
+        # Rate limiting alerts
+        - alert: PortcullisRateLimitRejectionsHigh
+          expr: |
+            sum(rate(portcullis_rate_limit_rejections_total[5m])) by (server_slug, scope)
+            > 100
+          for: 5m
+          labels:
+            severity: warning
+            component: gateway
+          annotations:
+            summary: "Portcullis rate limit rejections high on {{ $labels.server_slug }}"
+            description: "Rate limit rejections: {{ $value | humanize }}/s (scope: {{ $labels.scope }}). Consider increasing limits or investigating abusive clients."
+
+        - alert: PortcullisPreAuthRateLimitHigh
+          expr: |
+            sum(rate(portcullis_rate_limit_rejections_total{scope="pre_auth"}[5m]))
+            > 50
+          for: 5m
+          labels:
+            severity: warning
+            component: gateway
+          annotations:
+            summary: "Portcullis pre-auth rate limit rejections high"
+            description: "Pre-auth rejections: {{ $value | humanize }}/s. Possible credential stuffing or DDoS attempt."
+
+        # RBAC denial alerts
+        - alert: PortcullisRBACDenialsHigh
+          expr: |
+            sum(rate(portcullis_rbac_denials_total[5m])) by (server_slug)
+            > 50
+          for: 5m
+          labels:
+            severity: warning
+            component: gateway
+          annotations:
+            summary: "Portcullis RBAC denials high on {{ $labels.server_slug }}"
+            description: "RBAC denials: {{ $value | humanize }}/s. Check if permissions need updating or if there's a misconfiguration."
+
+    - name: portcullis.upstream
+      interval: 30s
+      rules:
+        # Upstream health alerts
+        - alert: PortcullisUpstreamUnhealthy
+          expr: |
+            portcullis_upstream_health{status="unhealthy"} == 1
+          for: 1m
+          labels:
+            severity: critical
+            component: upstream
+          annotations:
+            summary: "Portcullis upstream {{ $labels.server_slug }} is unhealthy"
+            description: "Upstream server {{ $labels.server_slug }} has failed {{ $value }} consecutive health checks. It has been removed from rotation."
+
+        - alert: PortcullisUpstreamDegraded
+          expr: |
+            portcullis_upstream_health{status="degraded"} == 1
+          for: 5m
+          labels:
+            severity: warning
+            component: upstream
+          annotations:
+            summary: "Portcullis upstream {{ $labels.server_slug }} is degraded"
+            description: "Upstream server {{ $labels.server_slug }} has intermittent health check failures."
+
+        - alert: PortcullisUpstreamHighLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(portcullis_upstream_request_duration_seconds_bucket[5m])) by (le, server_slug)
+            ) > 5
+          for: 5m
+          labels:
+            severity: warning
+            component: upstream
+          annotations:
+            summary: "Portcullis upstream {{ $labels.server_slug }} p99 latency > 5s"
+            description: "Upstream server {{ $labels.server_slug }} is responding slowly."
+
+    - name: portcullis.infrastructure
+      interval: 30s
+      rules:
+        # Redis alerts
+        - alert: PortcullisRedisHighMemory
+          expr: |
+            (redis_memory_used_bytes / redis_memory_max_bytes) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Portcullis Redis memory usage > 85%"
+            description: "Redis memory usage is {{ $value | humanizePercentage }}. Consider increasing maxmemory or adding shards."
+
+        - alert: PortcullisRedisHighConnections
+          expr: |
+            (redis_connected_clients / redis_config_maxclients) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Portcullis Redis connections > 80% of max"
+            description: "Redis has {{ $value | humanizePercentage }} of max connections used. Consider increasing maxclients or connection pool size."
+
+        - alert: PortcullisRedisDown
+          expr: |
+            up{job="redis"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            component: redis
+          annotations:
+            summary: "Portcullis Redis instance down"
+            description: "Redis is not responding. Gateway rate limiting and sessions will fail."
+
+        # PostgreSQL/PgBouncer alerts
+        - alert: PortcullisPgBouncerPoolExhausted
+          expr: |
+            (pgbouncer_pool_used / pgbouncer_pool_size) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            component: postgresql
+          annotations:
+            summary: "Portcullis PgBouncer pool usage > 85%"
+            description: "PgBouncer pool usage is {{ $value | humanizePercentage }}. Consider increasing pool size or adding replicas."
+
+        - alert: PortcullisPostgresDown
+          expr: |
+            up{job="postgresql"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            component: postgresql
+          annotations:
+            summary: "Portcullis PostgreSQL down"
+            description: "PostgreSQL is not responding. Gateway will be unable to authenticate or authorize requests."
+
+        # Gateway pod alerts
+        - alert: PortcullisPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="portcullis", container="portcullis"}[15m]) > 2
+          for: 0m
+          labels:
+            severity: warning
+            component: gateway
+          annotations:
+            summary: "Portcullis pod restarting frequently"
+            description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in 15 minutes. Check logs for OOM or crashes."
+
+        - alert: PortcullisPodOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{namespace="portcullis", reason="OOMKilled"} == 1
+          for: 0m
+          labels:
+            severity: critical
+            component: gateway
+          annotations:
+            summary: "Portcullis pod OOM killed"
+            description: "Pod {{ $labels.pod }} was killed due to out of memory. Increase memory limits."
+
+        - alert: PortcullisHPAAtMaxReplicas
+          expr: |
+            kube_horizontalpodautoscaler_status_desired_replicas{namespace="portcullis"} == kube_horizontalpodautoscaler_spec_max_replicas{namespace="portcullis"}
+          for: 15m
+          labels:
+            severity: warning
+            component: gateway
+          annotations:
+            summary: "Portcullis HPA at max replicas"
+            description: "HPA has been at max replicas for 15 minutes. Consider increasing maxReplicas or investigating load."
+
+    - name: portcullis.business
+      interval: 60s
+      rules:
+        # Usage/billing alerts
+        - alert: PortcullisUsageCapApproaching
+          expr: |
+            (
+              sum(portcullis_usage_tool_calls_total) by (tenant_id)
+              /
+              sum(portcullis_usage_monthly_cap) by (tenant_id)
+            ) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            component: billing
+          annotations:
+            summary: "Portcullis tenant {{ $labels.tenant_id }} approaching usage cap"
+            description: "Tenant usage is at {{ $value | humanizePercentage }} of monthly cap. Consider upgrading plan or increasing cap."
+
+        - alert: PortcullisUsageCapExceeded
+          expr: |
+            (
+              sum(portcullis_usage_tool_calls_total) by (tenant_id)
+              /
+              sum(portcullis_usage_monthly_cap) by (tenant_id)
+            ) >= 1.0
+          for: 0m
+          labels:
+            severity: critical
+            component: billing
+          annotations:
+            summary: "Portcullis tenant {{ $labels.tenant_id }} exceeded usage cap"
+            description: "Tenant has exceeded monthly tool call cap. Requests will return 402 Payment Required."
+
+        - alert: PortcullisLicenseExpiring
+          expr: |
+            (portcullis_license_expires_at_timestamp - time()) < 604800
+          for: 1h
+          labels:
+            severity: warning
+            component: billing
+          annotations:
+            summary: "Portcullis license expiring within 7 days"
+            description: "License for tenant {{ $labels.tenant_id }} expires in {{ $value | humanizeDuration }}. Renew to avoid service disruption."
+
+    - name: portcullis.security
+      interval: 60s
+      rules:
+        # Authentication failures
+        - alert: PortcullisAuthFailuresHigh
+          expr: |
+            sum(rate(portcullis_auth_failures_total[5m])) by (reason)
+            > 100
+          for: 5m
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Portcullis authentication failures high ({{ $labels.reason }})"
+            description: "Auth failure rate: {{ $value | humanize }}/s (reason: {{ $labels.reason }}). Possible brute force or credential stuffing."
+
+        - alert: PortcullisOriginValidationFailures
+          expr: |
+            sum(rate(portcullis_origin_validation_failures_total[5m])) > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Portcullis Origin header validation failures"
+            description: "Origin validation failures: {{ $value | humanize }}/s. Possible DNS rebinding attempt or misconfigured client."
+
+        - alert: PortcullisSuspiciousAPIKeyUsage
+          expr: |
+            sum(rate(portcullis_api_key_usage_total{result="denied"}[5m])) by (key_prefix)
+            > 50
+          for: 5m
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Portcullis suspicious API key usage ({{ $labels.key_prefix }})"
+            description: "API key {{ $labels.key_prefix }} has {{ $value | humanize }}/s denied requests. Possible compromised key."

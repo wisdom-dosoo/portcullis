@@ -1067,7 +1067,7 @@ export default function OnboardingPage() {
       { icon: Shield, label: "Manage policies",       href: "/dashboard/policies",   color: "#48B8E8" },
       { icon: Play,   label: "Test tools",            href: "/dashboard/playground", color: "#F4B942" },
       { icon: Eye,    label: "View audit log",        href: "/dashboard/audit",      color: "#35C88A" },
-      { icon: Users,  label: "Invite teammates",      href: "/dashboard/team",       color: "#F05D5E" },
+      { icon: Users,  label: "Invite teammates",      href: "/dashboard/access-control?tab=members", color: "#F05D5E" },
       { icon: BookOpen, label: "Read the docs",       href: "/developer/docs",       color: "#8B98A7" },
     ];
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import McpServer, Role, ServerStatus, ToolPermission
@@ -27,6 +27,9 @@ class ServerRepository:
             transport=data.transport,
             auth_mode=data.auth_mode,
             service_token_env_var=data.service_token_env_var,
+            ssl_ca=data.ssl_ca,
+            ssl_cert=data.ssl_cert,
+            ssl_key=data.ssl_key,
             health_check_path=data.health_check_path,
             status=ServerStatus.ACTIVE,
         )
@@ -40,6 +43,13 @@ class ServerRepository:
             select(McpServer).where(McpServer.tenant_id == tenant_id)
         )
         return list(result.all())
+
+    async def count(self, tenant_id: UUID) -> int:
+        """Return the number of MCP servers registered for the tenant."""
+        result = await self._session.scalar(
+            select(func.count(McpServer.id)).where(McpServer.tenant_id == tenant_id)
+        )
+        return int(result or 0)
 
     async def get_by_slug(self, tenant_id: UUID, slug: str) -> McpServer | None:
         """Return the MCP server with the given slug, or None if not found."""
@@ -65,6 +75,12 @@ class ServerRepository:
             server.auth_mode = data.auth_mode
         if data.service_token_env_var is not None:
             server.service_token_env_var = data.service_token_env_var
+        if data.ssl_ca is not None:
+            server.ssl_ca = data.ssl_ca
+        if data.ssl_cert is not None:
+            server.ssl_cert = data.ssl_cert
+        if data.ssl_key is not None:
+            server.ssl_key = data.ssl_key
         if data.health_check_path is not None:
             server.health_check_path = data.health_check_path
         if data.status is not None:

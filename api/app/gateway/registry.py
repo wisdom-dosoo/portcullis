@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.licenses import LicenseEntitlementError, require_license
 from app.config import Settings
 from app.models.orm import ServerAuthMode
 from app.models.schemas import ServerCreate, ServerUpdate, ServerView
@@ -37,12 +38,23 @@ class RegistryService:
         """
         validate_upstream_url(
             command.upstream_url,
-            self._settings.upstream_allowed_hosts,
+            self._settings.upstream_hosts_tuple,
             self._settings.environment,
         )
 
         if command.auth_mode == ServerAuthMode.SERVICE_TOKEN and not command.service_token_env_var:
             raise ValueError("service_token_env_var is required when auth_mode is 'service_token'")
+
+        # Enforce license entitlement before allowing a new server registration.
+        try:
+            await require_license(
+                self._session,
+                DEFAULT_TENANT_ID,
+                users=0,
+                servers=await self._repo.count(DEFAULT_TENANT_ID) + 1,
+            )
+        except LicenseEntitlementError as exc:
+            raise ValueError(str(exc)) from exc
 
         try:
             server = await self._repo.create(DEFAULT_TENANT_ID, command)
@@ -86,7 +98,7 @@ class RegistryService:
         if command.upstream_url is not None:
             validate_upstream_url(
                 command.upstream_url,
-                self._settings.upstream_allowed_hosts,
+                self._settings.upstream_hosts_tuple,
                 self._settings.environment,
             )
 

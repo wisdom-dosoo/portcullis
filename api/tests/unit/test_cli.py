@@ -8,7 +8,8 @@ from uuid import UUID
 import pytest
 
 from app.auth.subject import IssuedKey
-from app.cli import _bootstrap_admin, _create_admin_key
+from app.cli import _bootstrap_admin, _create_admin_key, _provision_tenant
+from app.provisioning import ProvisioningError
 
 TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
@@ -164,5 +165,106 @@ class TestBootstrapAdmin:
 
             with pytest.raises(SystemExit):
                 await _bootstrap_admin("missing@example.com")
+
+        mock_runtime.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# provision-tenant
+# ---------------------------------------------------------------------------
+
+
+def _make_provision_args(**overrides) -> MagicMock:
+    args = MagicMock()
+    args.name = "Acme Inc"
+    args.slug = "acme"
+    args.owner_email = "owner@acme.test"
+    args.owner_full_name = "Ada Owner"
+    args.owner_password = None
+    args.plan = "pro"
+    args.licensee = None
+    args.seat_limit = 5
+    args.server_limit = None
+    args.expires_in_days = 365
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    return args
+
+
+def _make_provision_result_mock() -> MagicMock:
+    result = MagicMock()
+    result.tenant = MagicMock()
+    result.tenant.name = "Acme Inc"
+    result.tenant.slug = "acme"
+    result.tenant.id = UUID("00000000-0000-0000-0000-0000000000aa")
+    result.owner = MagicMock()
+    result.owner.email = "owner@acme.test"
+    result.access_token = "pk_abcdefgh_" + "a" * 43
+    result.license_key = "lc_plaintext"
+    result.license = MagicMock()
+    result.license.plan = MagicMock(value="pro")
+    result.owner_password = "generated-password"
+    return result
+
+
+class TestProvisionTenant:
+    @pytest.mark.asyncio
+    async def test_prints_credentials_to_stdout(self, capsys) -> None:
+        mock_runtime = _make_mock_runtime()
+        result = _make_provision_result_mock()
+
+        with (
+            patch("app.cli.Runtime.build", return_value=mock_runtime),
+            patch("app.cli.get_settings", return_value=MagicMock(api_key_pepper="test-pepper")),
+            patch(
+                "app.cli.ProvisioningService",
+                return_value=MagicMock(provision_tenant=AsyncMock(return_value=result)),
+            ),
+        ):
+            await _provision_tenant(_make_provision_args())
+
+        captured = capsys.readouterr()
+        assert "Tenant provisioned: Acme Inc (acme)" in captured.out
+        assert result.access_token in captured.out
+        assert "owner_password: generated-password" in captured.out
+        mock_runtime.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_does_not_print_password_when_client_provided(self, capsys) -> None:
+        mock_runtime = _make_mock_runtime()
+        result = _make_provision_result_mock()
+
+        with (
+            patch("app.cli.Runtime.build", return_value=mock_runtime),
+            patch("app.cli.get_settings", return_value=MagicMock(api_key_pepper="test-pepper")),
+            patch(
+                "app.cli.ProvisioningService",
+                return_value=MagicMock(provision_tenant=AsyncMock(return_value=result)),
+            ),
+        ):
+            await _provision_tenant(_make_provision_args(owner_password="client-pw"))
+
+        captured = capsys.readouterr()
+        assert "owner_password" not in captured.out
+        mock_runtime.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_slug_conflict_raises_system_exit(self) -> None:
+        mock_runtime = _make_mock_runtime()
+
+        with (
+            patch("app.cli.Runtime.build", return_value=mock_runtime),
+            patch("app.cli.get_settings", return_value=MagicMock(api_key_pepper="test-pepper")),
+            patch(
+                "app.cli.ProvisioningService",
+                return_value=MagicMock(
+                    provision_tenant=AsyncMock(
+                        side_effect=ProvisioningError("tenant slug already in use: acme")
+                    )
+                ),
+            ),
+            pytest.raises(SystemExit, match="already in use"),
+        ):
+            await _provision_tenant(_make_provision_args())
 
         mock_runtime.close.assert_awaited_once()

@@ -28,22 +28,32 @@ import {
   LineChart,
   Line,
 } from "recharts";
-import { useListAuditLogsV1AuditGet, useListServersV1ServersGet, type AuditLogView, type ServerView } from "@/api/generated";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  useListAuditLogsV1AuditGet,
+  useListServersV1ServersGet,
+  useOrgUsageV1UsageGet,
+  type AuditLogView,
+  type ServerView,
+  type UsageView,
+} from "@/api/generated";
 
-/* ── plan limits (hardcoded for demo) ───────────────────────────────────── */
+/* ── plan limits (server-provided, with sensible defaults) ──────────────── */
 
-const PLAN = {
-  name: "Pro",
-  requestLimit: 500_000,
-  serverLimit: 20,
-  memberLimit: 25,
-  retentionDays: 90,
-  retentionGB: 50,
-  transferGB: 100,
-  pricePerRequest: 0.000_02,      // per request over limit
-  basePrice: 149,
-};
+function planFromUsage(usage: UsageView | undefined) {
+  const PLAN = {
+    name: usage?.plan ?? "community",
+    requestLimit: usage?.monthly_request_cap ?? 1_000_000,
+    enforcement: usage?.enforcement_enabled ?? false,
+    serverLimit: 20,
+    memberLimit: 25,
+    retentionDays: 90,
+    retentionGB: 50,
+    transferGB: 100,
+    pricePerRequest: 0.000_02,      // per request over limit
+    basePrice: 149,
+  };
+  return PLAN;
+}
 
 const BILLING_START = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 const DAYS_IN_MONTH = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
@@ -51,7 +61,7 @@ const DAY_OF_MONTH  = new Date().getDate();
 
 /* ── demo data generators ────────────────────────────────────────────────── */
 
-function makeDailyUsage(total: number): Array<{ day: string; requests: number; limit: number }> {
+function makeDailyUsage(total: number, requestLimit: number): Array<{ day: string; requests: number; limit: number }> {
   const days: Array<{ day: string; requests: number; limit: number }> = [];
   const dailyAvg = Math.floor(total / DAY_OF_MONTH);
   for (let d = 1; d <= DAY_OF_MONTH; d++) {
@@ -59,7 +69,7 @@ function makeDailyUsage(total: number): Array<{ day: string; requests: number; l
     days.push({
       day: `${d}`,
       requests: Math.max(0, dailyAvg + jitter),
-      limit: Math.floor(PLAN.requestLimit / DAYS_IN_MONTH),
+      limit: Math.floor(requestLimit / DAYS_IN_MONTH),
     });
   }
   return days;
@@ -389,17 +399,24 @@ function exportCsv(daily: Array<{ day: string; requests: number }>) {
 export default function UsagePage() {
   const logsQuery = useListAuditLogsV1AuditGet({ limit: 200 });
   const serversQuery = useListServersV1ServersGet();
+  const usageQuery = useOrgUsageV1UsageGet();
   const logs = (logsQuery.data?.data ?? []) as AuditLogView[];
   const servers = (serversQuery.data?.data ?? []) as ServerView[];
+  const usage = usageQuery.data?.data as UsageView | undefined;
 
-  // demo usage numbers
-  const requestsUsed = 312_480;
+  const PLAN = planFromUsage(usage);
+
+  // usage numbers (real where available, fall back to demo numbers)
+  const requestsUsed = usage?.requests ?? 312_480;
+  const toolCallsUsed = usage?.tool_calls ?? 0;
+  const rbacDenials = usage?.rbac_denials ?? 0;
+  const rateLimitRejections = usage?.rate_limit_rejections ?? 0;
   const transferUsed = 34.2;
   const retentionUsed = 18.7;
   const memberCount  = 8;
   const serverCount  = servers.length || 7;
 
-  const dailyUsage  = useMemo(() => makeDailyUsage(requestsUsed), []);
+  const dailyUsage  = useMemo(() => makeDailyUsage(requestsUsed, PLAN.requestLimit), [requestsUsed, PLAN.requestLimit]);
   const toolUsage   = useMemo(() => makeToolUsage(logs), [logs]);
   const serverUsage = useMemo(() => makeServerUsage(logs, servers), [logs, servers]);
   const userUsage   = useMemo(() => makeUserUsage(logs), [logs]);
@@ -455,6 +472,7 @@ export default function UsagePage() {
       {/* summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
         <SummaryCard label="Requests used"   value={fmt(requestsUsed)}         sub={`of ${fmt(PLAN.requestLimit)} limit`} trend="up"   trendLabel="+12% vs last month" warning={reqPct >= 90} color={reqPct >= 90 ? "var(--pc-critical)" : undefined} />
+        <SummaryCard label="Tool calls"      value={fmt(toolCallsUsed)}         sub={PLAN.enforcement ? `of ${fmt(PLAN.requestLimit)} cap` : "metered, not capped"} />
         <SummaryCard label="Active servers"  value={`${serverCount}`}           sub={`of ${PLAN.serverLimit} limit`} />
         <SummaryCard label="Team members"    value={`${memberCount}`}           sub={`of ${PLAN.memberLimit} limit`} />
         <SummaryCard label="Retention used"  value={`${retentionUsed} GB`}      sub={`of ${PLAN.retentionGB} GB (${PLAN.retentionDays}d)`} />
@@ -468,6 +486,7 @@ export default function UsagePage() {
       <div style={{ padding: 18, background: "var(--pc-surface)", border: "1px solid var(--pc-border)", borderRadius: 8, marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Resource utilisation</div>
         <UsageBar label="Requests"   used={requestsUsed}   limit={PLAN.requestLimit} />
+        <UsageBar label="Tool calls" used={toolCallsUsed}  limit={PLAN.requestLimit} />
         <UsageBar label="Servers"    used={serverCount}    limit={PLAN.serverLimit} />
         <UsageBar label="Members"    used={memberCount}    limit={PLAN.memberLimit} />
         <UsageBar label="Retention"  used={retentionUsed}  limit={PLAN.retentionGB} unit=" GB" />
@@ -629,7 +648,11 @@ export default function UsagePage() {
 
       <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--pc-muted)" }}>
         <Info size={12} />
-        Usage counts are derived from audit log events. Actual billing figures are computed server-side and may differ slightly.
+        {PLAN.enforcement
+          ? `Metering is enforced for the ${PLAN.name} plan — requests are rejected once the ${fmt(PLAN.requestLimit)} monthly cap is reached.`
+          : `Metering is active but not enforced on this deployment (requests are counted, never blocked).`}
+        {rbacDenials > 0 && <> · {fmt(rbacDenials)} policy denials this period</>}
+        {rateLimitRejections > 0 && <> · {fmt(rateLimitRejections)} rate-limit rejections</>}
       </div>
     </div>
   );

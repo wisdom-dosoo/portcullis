@@ -19,6 +19,13 @@ EXPECTED_TABLES = {
     "audit_logs",
     "users",
     "invitations",
+    "licenses",
+    "teams",
+    "org_members",
+    "team_servers",
+    "super_admin_organizations",
+    "instances",
+    "usage_daily",
 }
 
 
@@ -117,12 +124,47 @@ def test_rate_limit_constraints_and_enums() -> None:
     table = orm.Base.metadata.tables["rate_limit_policies"]
     checks = tuple(_check_sql(table))
 
-    assert _foreign_key_targets(table, "subject_id") == {"api_keys.id"}
+    # subject_id is polymorphic TEXT (UUID string or OAuth sub) — no FK since v0.5
+    assert not _foreign_key_targets(table, "subject_id")
+    assert _enum_values(table, "subject_type") == ("api_key", "oauth_subject")
     assert _enum_values(table, "algorithm") == ("token_bucket", "sliding_window")
     assert any("request_limit>0" in sql for sql in checks)
     assert any("window_seconds>0" in sql for sql in checks)
     assert any("burst_capacityisnullorburst_capacity>0" in sql for sql in checks)
     assert any("algorithm!='token_bucket'orburst_capacityisnotnull" in sql for sql in checks)
+
+
+def test_admin_rbac_tables_and_constraints() -> None:
+    teams = orm.Base.metadata.tables["teams"]
+    team_servers = orm.Base.metadata.tables["team_servers"]
+    org_members = orm.Base.metadata.tables["org_members"]
+    super_admin_orgs = orm.Base.metadata.tables["super_admin_organizations"]
+
+    # Teams are tenant-scoped with a unique name per tenant.
+    assert _foreign_key_targets(teams, "tenant_id") == {"tenants.id"}
+    assert frozenset(("tenant_id", "name")) in _unique_column_sets(teams)
+
+    # Team ↔ server join table.
+    assert _foreign_key_targets(team_servers, "team_id") == {"teams.id"}
+    assert _foreign_key_targets(team_servers, "server_id") == {"mcp_servers.id"}
+
+    # Org members carry a human admin role; a NULL team_id means org-wide.
+    assert _foreign_key_targets(org_members, "tenant_id") == {"tenants.id"}
+    assert _foreign_key_targets(org_members, "team_id") == {"teams.id"}
+    assert _enum_values(org_members, "admin_role") == (
+        "org_owner",
+        "org_admin",
+        "developer",
+        "team_member",
+        "viewer",
+        "auditor",
+        "billing_admin",
+    )
+    assert frozenset(("tenant_id", "user_subject")) in _unique_column_sets(org_members)
+
+    # Super admin join table links a user to a managed org.
+    assert _foreign_key_targets(super_admin_orgs, "super_admin_id") == {"users.id"}
+    assert _foreign_key_targets(super_admin_orgs, "organization_tenant_id") == {"tenants.id"}
 
 
 @pytest.mark.asyncio

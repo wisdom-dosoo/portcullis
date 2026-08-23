@@ -25,6 +25,7 @@ import {
 import Link from "next/link";
 import type { Notification, NotifType } from "@/components/notification-panel";
 import { DEMO_NOTIFICATIONS } from "@/components/notification-panel";
+import { RelativeTime } from "@/components/relative-time";
 
 /* ── Config ──────────────────────────────────────────────────────────────── */
 
@@ -40,15 +41,6 @@ const NOTIF_CFG: Record<NotifType, { icon: React.ReactNode; color: string; bg: s
   incident_resolved:  { icon: <CheckCircle2 size={15} />, color: "var(--pc-success)",  bg: "rgba(53,200,138,0.12)",  label: "Incident" },
   new_tool:           { icon: <Wrench size={15} />,       color: "var(--pc-primary)",  bg: "rgba(45,212,167,0.12)",  label: "Tool" },
 };
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  if (diff < 86_400_000 * 7) return `${Math.floor(diff / 86_400_000)}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
 
 /* ── Preference channel row ──────────────────────────────────────────────── */
 
@@ -329,9 +321,10 @@ export default function NotificationsPage() {
                             {cfg.label}
                           </span>
                         </div>
-                        <span style={{ fontSize: 11, color: "var(--pc-muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
-                          {relativeTime(notif.timestamp)}
-                        </span>
+                        <RelativeTime
+                          iso={notif.timestamp}
+                          style={{ fontSize: 11, color: "var(--pc-muted)", whiteSpace: "nowrap", flexShrink: 0 }}
+                        />
                       </div>
                       <p style={{ fontSize: 12, color: "var(--pc-muted)", lineHeight: 1.55, margin: "0 0 8px" }}>
                         {notif.body}

@@ -247,7 +247,9 @@ def _mock_upstream_tools_list(tools: list[dict]) -> MagicMock:
     resp.status_code = 200
     resp.content = body.encode()
     resp.headers = {"content-type": "application/json"}
-    # Make it iterable for streaming paths (unused here but prevents errors)
+    resp.aread = AsyncMock()
+    resp.aclose = AsyncMock()
+    resp.aiter_bytes = AsyncMock(return_value=[])
     return resp
 
 
@@ -259,6 +261,9 @@ def _mock_upstream_tool_call_ok() -> MagicMock:
     resp.status_code = 200
     resp.content = body.encode()
     resp.headers = {"content-type": "application/json"}
+    resp.aread = AsyncMock()
+    resp.aclose = AsyncMock()
+    resp.aiter_bytes = AsyncMock(return_value=[])
     return resp
 
 

@@ -13,6 +13,20 @@ SUPPORTED_METHODS: frozenset[str] = frozenset(
         "ping",
         "tools/list",
         "tools/call",
+        # Resources
+        "resources/list",
+        "resources/read",
+        "resources/subscribe",
+        "resources/unsubscribe",
+        # Prompts
+        "prompts/list",
+        "prompts/get",
+        # Sampling
+        "sampling/createMessage",
+        # Roots
+        "roots/list",
+        # Session management
+        "session/terminate",
     }
 )
 

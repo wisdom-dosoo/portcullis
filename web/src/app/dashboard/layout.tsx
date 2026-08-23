@@ -8,7 +8,6 @@ import {
   Play,
   Shield,
   Key,
-  Users,
   BarChart3,
   Activity,
   ClipboardList,
@@ -19,6 +18,7 @@ import {
   Settings,
   Zap,
   Search,
+  KeyRound,
 } from "lucide-react";
 
 const SECTIONS: NavSection[] = [
@@ -51,7 +51,7 @@ const SECTIONS: NavSection[] = [
   {
     label: "Organization",
     items: [
-      { href: "/dashboard/team",            label: "Team",          icon: Users },
+      { href: "/dashboard/access-control", label: "Access Control", icon: KeyRound },
       { href: "/dashboard/alerts",          label: "Alerts",        icon: Bell },
       { href: "/dashboard/notifications",   label: "Notifications", icon: BellDot },
       { href: "/dashboard/integrations",    label: "Integrations",  icon: Puzzle },

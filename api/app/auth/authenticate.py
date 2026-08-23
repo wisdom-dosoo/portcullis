@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.api_keys import verify_key
-from app.auth.jwt_validator import verify_jwt
+from app.auth.jwt_validator import JwksCache, verify_jwt
 from app.auth.subject import Subject
 from app.config import Settings
 
@@ -20,6 +20,7 @@ async def authenticate(
     raw_token: str,
     settings: Settings,
     session: AsyncSession,
+    jwks_cache: JwksCache | None = None,
 ) -> Subject:
     """Resolve a raw bearer token (no 'Bearer ' prefix) to an authenticated Subject.
 
@@ -39,4 +40,4 @@ async def authenticate(
     if not settings.jwt_jwks_url:
         raise ValueError("invalid bearer token")
 
-    return await verify_jwt(raw_token=raw_token, settings=settings)
+    return await verify_jwt(raw_token=raw_token, settings=settings, jwks_cache=jwks_cache)

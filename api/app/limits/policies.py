@@ -57,16 +57,18 @@ def _selector_level(policy: RateLimitPolicy) -> int:
 def _policy_matches(
     policy: RateLimitPolicy,
     subject_id: str | None,
+    subject_type: SubjectType | None,
     server_slug: str | None,
     tool_name: str | None,
 ) -> bool:
     """Return True if the policy applies to the given request context."""
     # Subject must match if policy is subject-scoped.
-    # policy.subject_id is a UUID (DB column); compare as strings for uniformity.
-    if policy.subject_id is not None and (
-        subject_id is None or str(policy.subject_id) != str(subject_id)
-    ):
-        return False
+    if policy.subject_id is not None:
+        if subject_id is None or policy.subject_id != subject_id:
+            return False
+        if policy.subject_type is not None and subject_type is not None:
+            if policy.subject_type != subject_type:
+                return False
 
     # Server pattern must match if policy specifies one
     if policy.server_pattern is not None:
@@ -87,6 +89,7 @@ def _policy_matches(
 
 def resolve_policy(
     subject_id: str | None,
+    subject_type: SubjectType | None,
     server_slug: str | None,
     tool_name: str | None,
     policies: list[RateLimitPolicy],
@@ -105,7 +108,7 @@ def resolve_policy(
     Falls back to the default_str (parsed as token_bucket) if no policies match.
     """
     # Filter to only matching policies
-    candidates = [p for p in policies if _policy_matches(p, subject_id, server_slug, tool_name)]
+    candidates = [p for p in policies if _policy_matches(p, subject_id, subject_type, server_slug, tool_name)]
 
     if not candidates:
         request_limit, window_seconds = parse_default(default_str)

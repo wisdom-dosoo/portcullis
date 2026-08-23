@@ -32,6 +32,7 @@ def _make_orm_user(user_id: UUID | None = None) -> MagicMock:
     obj.is_active = True
     obj.approval_status = UserApprovalStatus.APPROVED
     obj.is_platform_admin = False
+    obj.org_role = None
     obj.access_token = None
     obj.created_at = NOW
     obj.updated_at = NOW
@@ -91,9 +92,13 @@ class TestRegister:
             patch("app.api.auth.UserRepository") as MockUsers,
             patch("app.api.auth.issue_key", new_callable=AsyncMock) as mock_issue,
             patch("app.api.auth.PasswordService") as MockPasswords,
+            patch("app.api.auth.require_license", new_callable=AsyncMock) as mock_license,
+            patch("app.api.auth.create_default_roles", new_callable=AsyncMock),
+            patch("app.api.auth.bind_owner_to_org_owner", new_callable=AsyncMock),
         ):
             mock_users = MockUsers.return_value
             mock_users.get_by_email = AsyncMock(return_value=None)
+            mock_users.count = AsyncMock(return_value=0)
             mock_users.create = AsyncMock(return_value=user)
 
             passwords = MockPasswords.return_value

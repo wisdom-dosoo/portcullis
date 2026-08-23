@@ -14,7 +14,7 @@ from httpx import ASGITransport
 from app.auth.dependencies import admin_subject, authenticated_subject
 from app.auth.subject import Subject
 from app.main import create_app
-from app.models.orm import RateLimitAlgorithm
+from app.models.orm import RateLimitAlgorithm, SubjectType
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,6 +84,7 @@ def _make_fake_policy(
     obj.id = policy_id or uuid4()
     obj.tenant_id = DEFAULT_TENANT_ID
     obj.subject_id = subject_id
+    obj.subject_type = SubjectType.API_KEY
     obj.server_pattern = None
     obj.tool_pattern = None
     obj.algorithm = algorithm

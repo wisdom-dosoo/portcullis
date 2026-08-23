@@ -117,7 +117,7 @@ export const DEMO_NOTIFICATIONS: Notification[] = [
     body: "You've been invited to join Acme Corp organization by admin@acme.com.",
     timestamp: new Date(Date.now() - 86_400_000 * 3).toISOString(),
     read: true,
-    href: "/dashboard/team",
+    href: "/dashboard/access-control?tab=members",
   },
   {
     id: "n9",

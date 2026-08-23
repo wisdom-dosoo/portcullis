@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.orm import User, UserApprovalStatus
+from app.models.orm import OrgRole, User, UserApprovalStatus
 
 
 class UserRepository:
@@ -16,6 +16,13 @@ class UserRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def count(self, tenant_id: UUID) -> int:
+        """Return the number of users in the tenant."""
+        result = await self._session.scalar(
+            select(func.count(User.id)).where(User.tenant_id == tenant_id)
+        )
+        return int(result or 0)
 
     async def create(
         self,
@@ -26,6 +33,7 @@ class UserRepository:
         org_name: str | None,
         intended_use: str | None,
         approval_status: UserApprovalStatus = UserApprovalStatus.APPROVED,
+        org_role: OrgRole | None = None,
     ) -> User:
         """Persist a new user record and return the ORM instance."""
         user = User(
@@ -36,6 +44,7 @@ class UserRepository:
             org_name=org_name,
             intended_use=intended_use,
             approval_status=approval_status,
+            org_role=org_role,
         )
         self._session.add(user)
         await self._session.flush()

@@ -12,10 +12,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from redis.exceptions import RedisError
 
 from app.auth.authenticate import authenticate
+from app.auth.jwt_validator import JwksCache
 from app.auth.rbac import evaluate_permission
-from app.auth.tool_filter import filter_tools_list
+from app.auth.tool_filter import (
+    filter_prompts_list,
+    filter_resources_list,
+    filter_roots_list,
+    filter_tools_list,
+)
 from app.config import Settings
-from app.constants import DEFAULT_TENANT_ID
 from app.gateway.headers import build_upstream_headers, extract_service_token
 from app.gateway.jsonrpc import (
     FORBIDDEN,
@@ -38,15 +43,164 @@ from app.limits.pre_auth import check_pre_auth_limit
 from app.limits.redis_bucket import RateLimiter
 from app.models.orm import AuditEventType, ServerAuthMode, ServerStatus
 from app.observability.audit import record_event
-from app.observability.metrics import AUTH_FAILURES, RATE_LIMIT_REJECTIONS, RBAC_DENIALS
+from app.observability.metrics import (
+    AUTH_FAILURES,
+    RATE_LIMIT_REJECTIONS,
+    RBAC_DENIALS,
+    UPSTREAM_REQUEST_DURATION,
+)
 from app.repositories.rate_limits import RateLimitRepository
 from app.repositories.rbac import RbacRepository
 from app.repositories.servers import ServerRepository
 from app.runtime import Runtime
+from app.usage import check_usage_cap, record_usage
 
 router = APIRouter(tags=["proxy"])
 
 logger = structlog.get_logger(__name__)
+
+
+class _AuthContext:
+    """Shared authentication and rate-limit context for proxy endpoints."""
+
+    def __init__(
+        self,
+        request: Request,
+        runtime: Runtime,
+        settings: Settings,
+        server_slug: str,
+        session,
+    ) -> None:
+        self.request = request
+        self.runtime = runtime
+        self.settings = settings
+        self.server_slug = server_slug
+        self.session = session
+        self.request_id = getattr(request.state, "request_id", None)
+        self.client_ip = getattr(request.client, "host", "unknown") if request.client else "unknown"
+        self.subject = None
+        self.server = None
+        self.rl_headers: dict[str, str] = {}
+        self._jwks_cache = JwksCache(runtime.redis, settings.jwt_jwks_cache_ttl_seconds)
+
+    async def run_pre_auth_checks(self, rpc_id: int | str | None = None) -> JSONResponse | None:
+        """Run pre-auth rate limit and authentication. Returns error response or None on success."""
+        try:
+            pre_auth_limit, pre_auth_window = parse_default(self.settings.auth_rate_limit_default)
+            pre_auth_result = await check_pre_auth_limit(
+                self.client_ip,
+                self.runtime.redis,
+                pre_auth_limit,
+                pre_auth_window,
+            )
+        except RedisError as exc:
+            logger.error("proxy.pre_auth_redis_error", error=str(exc))
+            return _json_error(self.request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable")
+
+        if not pre_auth_result.allowed:
+            headers = _rate_limit_headers(pre_auth_result)
+            headers["Retry-After"] = str(int(pre_auth_result.retry_after_seconds))
+            RATE_LIMIT_REJECTIONS.labels(server_slug="_pre_auth", scope="pre_auth").inc()
+            return _json_error(
+                self.request, 429, rpc_id, RATE_LIMITED, "Pre-auth rate limit exceeded", headers
+            )
+
+        authorization = self.request.headers.get("authorization", "")
+        raw_token = authorization.removeprefix("Bearer ").strip()
+        if not raw_token:
+            AUTH_FAILURES.labels(reason="missing_credentials").inc()
+            return _json_error(self.request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
+
+        try:
+            self.subject = await authenticate(raw_token, self.settings, self.session, self._jwks_cache)
+        except ValueError:
+            AUTH_FAILURES.labels(reason="invalid_credentials").inc()
+            await record_event(
+                self.runtime.session_factory,
+                event_type=AuditEventType.AUTH_FAILURE,
+                outcome="denied",
+                server_slug=self.server_slug,
+                client_ip=self.client_ip,
+                request_id=self.request_id,
+            )
+            return _json_error(self.request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
+
+        return None
+
+    async def resolve_server(self, rpc_id: int | str | None = None) -> JSONResponse | None:
+        """Resolve and validate the upstream server. Returns error response or None on success."""
+        if self.subject is None:
+            return _json_error(
+                self.request, 500, rpc_id, INTERNAL_ERROR, "Authentication required before server resolution"
+            )
+        repo = ServerRepository(self.session)
+        self.server = await repo.get_by_slug(self.subject.tenant_id, self.server_slug)
+        if self.server is None:
+            return _json_error(
+                self.request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{self.server_slug}' not found"
+            )
+        if self.server.status in (ServerStatus.DISABLED, ServerStatus.UNHEALTHY):
+            return _json_error(
+                self.request,
+                503,
+                rpc_id,
+                UPSTREAM_UNAVAILABLE,
+                f"Server '{self.server_slug}' is {self.server.status.value}",
+            )
+        return None
+
+    async def check_rate_limit(self, tool_or_method: str, rpc_id: int | str | None = None) -> JSONResponse | None:
+        """Check rate limit for the request. Returns error response or None on success."""
+        if self.subject is None:
+            return _json_error(
+                self.request, 500, rpc_id, INTERNAL_ERROR, "Authentication required before rate limiting"
+            )
+        rl_repo = RateLimitRepository(self.session)
+        policies = await rl_repo.list(self.subject.tenant_id)
+        policy = resolve_policy(
+            self.subject.subject_id,
+            self.subject.subject_type,
+            self.server_slug,
+            tool_or_method,
+            policies,
+            self.settings.rate_limit_default,
+        )
+        try:
+            limiter = RateLimiter(self.runtime.redis)
+            rl_result = await limiter.check(
+                tenant_id=self.subject.tenant_id,
+                subject_id=self.subject.subject_id,
+                server_slug=self.server_slug,
+                tool_or_method=tool_or_method,
+                policy=policy,
+            )
+        except RedisError as exc:
+            logger.error("proxy.rate_limit_redis_error", error=str(exc))
+            return _json_error(
+                self.request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable"
+            )
+
+        self.rl_headers = _rate_limit_headers(rl_result)
+        if not rl_result.allowed:
+            retry_headers = dict(self.rl_headers)
+            retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
+            RATE_LIMIT_REJECTIONS.labels(server_slug=self.server_slug, scope="per_subject").inc()
+            await record_usage(
+                self.session,
+                tenant_id=self.subject.tenant_id,
+                rate_limit_rejections=1,
+            )
+            return _json_error(
+                self.request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers
+            )
+        return None
+
+    def build_upstream_headers(self) -> dict[str, str]:
+        """Build headers to forward to upstream server."""
+        service_token: str | None = None
+        if self.server.auth_mode == ServerAuthMode.SERVICE_TOKEN:
+            service_token = extract_service_token(self.server.service_token_env_var)
+        return build_upstream_headers(dict(self.request.headers), service_token)
 
 
 def _rate_limit_headers(result: Any) -> dict[str, str]:
@@ -136,172 +290,199 @@ async def mcp_proxy(
     # -------------------------------------------------------------------------
     # Step 2: Pre-auth rate limit (by client IP), then authenticate
     # -------------------------------------------------------------------------
-    try:
-        pre_auth_limit, pre_auth_window = parse_default(settings.auth_rate_limit_default)
-        pre_auth_result = await check_pre_auth_limit(
-            client_ip,
-            runtime.redis,
-            pre_auth_limit,
-            pre_auth_window,
-        )
-    except RedisError as exc:
-        logger.error("proxy.pre_auth_redis_error", error=str(exc))
-        return _json_error(request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable")
-
-    if not pre_auth_result.allowed:
-        headers = _rate_limit_headers(pre_auth_result)
-        headers["Retry-After"] = str(int(pre_auth_result.retry_after_seconds))
-        # Use a fixed label — the slug is unvalidated at this stage and could be
-        # attacker-controlled, which would create unbounded Prometheus cardinality.
-        RATE_LIMIT_REJECTIONS.labels(server_slug="_pre_auth", scope="pre_auth").inc()
-        return _json_error(
-            request, 429, rpc_id, RATE_LIMITED, "Pre-auth rate limit exceeded", headers
-        )
-
-    authorization = request.headers.get("authorization", "")
-    raw_token = authorization.removeprefix("Bearer ").strip()
-    if not raw_token:
-        AUTH_FAILURES.labels(reason="missing_credentials").inc()
-        return _json_error(request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
-
     async with runtime.session_factory() as session:
         try:
-            subject = await authenticate(raw_token, settings, session)
-        except ValueError:
-            AUTH_FAILURES.labels(reason="invalid_credentials").inc()
-            await record_event(
-                runtime.session_factory,
-                event_type=AuditEventType.AUTH_FAILURE,
-                outcome="denied",
-                server_slug=server_slug,
-                client_ip=client_ip,
-                request_id=request_id,
-                detail={"rpc_id": str(rpc_id)},
-            )
-            return _json_error(request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
+            ctx = _AuthContext(request, runtime, settings, server_slug, session)
 
-        try:
-            # -------------------------------------------------------------------------
-            # Step 3: Resolve registry entry (must be ACTIVE)
-            # -------------------------------------------------------------------------
-            repo = ServerRepository(session)
-            server = await repo.get_by_slug(DEFAULT_TENANT_ID, server_slug)
+            # Run pre-auth checks
+            error = await ctx.run_pre_auth_checks(rpc_id)
+            if error:
+                return error
 
-            if server is None:
-                return _json_error(
-                    request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' not found"
-                )
-
-            if server.status == ServerStatus.DISABLED:
-                return _json_error(
-                    request,
-                    503,
-                    rpc_id,
-                    UPSTREAM_UNAVAILABLE,
-                    f"Server '{server_slug}' is disabled",
-                )
-
-            if server.status == ServerStatus.UNHEALTHY:
-                return _json_error(
-                    request,
-                    503,
-                    rpc_id,
-                    UPSTREAM_UNAVAILABLE,
-                    f"Server '{server_slug}' is unhealthy",
-                )
+            # Resolve and validate server
+            error = await ctx.resolve_server(rpc_id)
+            if error:
+                return error
 
             # -------------------------------------------------------------------------
-            # Step 4: Derive MCP method and tool name
+            # Step 3: Derive MCP method and resource/tool name
             # -------------------------------------------------------------------------
             method = rpc_request.method
-            tool_name: str | None = None
+            resource_name: str | None = None
             if method == "tools/call" and rpc_request.params:
-                tool_name = rpc_request.params.get("name")
+                resource_name = rpc_request.params.get("name")
+            elif method in {"resources/read", "resources/subscribe", "resources/unsubscribe"} and rpc_request.params:
+                resource_name = rpc_request.params.get("uri")
+            elif method == "prompts/get" and rpc_request.params:
+                resource_name = rpc_request.params.get("name")
+            elif method == "sampling/createMessage" and rpc_request.params:
+                resource_name = "createMessage"
 
             # -------------------------------------------------------------------------
-            # Step 5: RBAC check for tools/call
+            # Step 4: RBAC check for methods that require authorization
             # -------------------------------------------------------------------------
-            if method == "tools/call":
-                if tool_name is None:
+            rbac_required_methods = {
+                "tools/call",
+                "resources/read",
+                "resources/subscribe",
+                "resources/unsubscribe",
+                "prompts/get",
+                "sampling/createMessage",
+            }
+            if method in rbac_required_methods:
+                if resource_name is None:
                     return _json_error(
-                        request, 422, rpc_id, INVALID_PARAMS, "tools/call requires params.name"
+                        request, 422, rpc_id, INVALID_PARAMS, f"{method} requires resource identifier"
                     )
 
                 rbac_repo = RbacRepository(session)
                 permissions = await rbac_repo.get_permissions_for_subject(
-                    subject.tenant_id,
-                    subject.subject_type,
-                    subject.subject_id,
+                    ctx.subject.tenant_id,
+                    ctx.subject.subject_type,
+                    ctx.subject.subject_id,
                 )
                 decision = evaluate_permission(
-                    subject.subject_id, server_slug, tool_name, permissions
+                    ctx.subject.subject_id, server_slug, resource_name, permissions
                 )
                 if not decision.allowed:
                     RBAC_DENIALS.labels(server_slug=server_slug).inc()
+                    await record_usage(
+                        session,
+                        tenant_id=ctx.subject.tenant_id,
+                        rbac_denials=1,
+                    )
                     await record_event(
                         runtime.session_factory,
                         event_type=AuditEventType.RBAC_DENY,
                         outcome="denied",
-                        tenant_id=subject.tenant_id,
-                        subject_id=subject.subject_id,
-                        subject_type=subject.subject_type,
+                        tenant_id=ctx.subject.tenant_id,
+                        subject_id=ctx.subject.subject_id,
+                        subject_type=ctx.subject.subject_type,
                         server_slug=server_slug,
-                        tool_name=tool_name,
+                        tool_name=resource_name,
                         rpc_method=method,
                         client_ip=client_ip,
                         request_id=request_id,
                         detail={"rule_id": str(decision.rule_id), "reason": decision.reason},
                     )
                     return _json_error(
-                        request, 403, rpc_id, FORBIDDEN, f"Tool '{tool_name}' is not permitted"
+                        request, 403, rpc_id, FORBIDDEN, f"Resource '{resource_name}' is not permitted"
                     )
 
             # -------------------------------------------------------------------------
-            # Step 6: Resolve rate-limit policy and check
+            # Step 4b: Handle session/terminate - explicit session termination
             # -------------------------------------------------------------------------
-            rl_repo = RateLimitRepository(session)
-            policies = await rl_repo.list(DEFAULT_TENANT_ID)
-            policy = resolve_policy(
-                subject.subject_id,
-                server_slug,
-                tool_name or method,
-                policies,
-                settings.rate_limit_default,
-            )
+            if method == "session/terminate":
+                inbound_session_id = request.headers.get("mcp-session-id")
+                if not inbound_session_id:
+                    return _json_error(
+                        request, 400, rpc_id, INVALID_PARAMS, "session/terminate requires Mcp-Session-Id header"
+                    )
 
-            try:
-                limiter = RateLimiter(runtime.redis)
-                rl_result = await limiter.check(
-                    tenant_id=DEFAULT_TENANT_ID,
-                    subject_id=subject.subject_id,
+                # Verify the session belongs to this subject
+                session_store = SessionStore(runtime.redis)
+                session_record = await session_store.lookup(inbound_session_id)
+                if not session_record:
+                    return _json_error(
+                        request, 404, rpc_id, INVALID_PARAMS, "Session not found"
+                    )
+
+                # Verify ownership
+                if (
+                    session_record.get("tenant_id") != str(ctx.subject.tenant_id)
+                    or session_record.get("subject_id") != ctx.subject.subject_id
+                    or session_record.get("server_slug") != server_slug
+                ):
+                    return _json_error(
+                        request, 403, rpc_id, FORBIDDEN, "Not authorized to terminate this session"
+                    )
+
+                # Delete the session
+                await session_store.delete(inbound_session_id)
+
+                # Forward to upstream so it can also clean up
+                upstream_headers = ctx.build_upstream_headers()
+                proxy = McpProxy(runtime.http_client, settings)
+                try:
+                    upstream_response = await proxy.forward(
+                        upstream_url=ctx.server.upstream_url,
+                        path="",
+                        method=request.method,
+                        headers=upstream_headers,
+                        body=body,
+                        stream=False,
+                        server=ctx.server,
+                    )
+                except UpstreamError as exc:
+                    logger.error("proxy.upstream_error", server_slug=server_slug, error=str(exc))
+                    return _json_error(
+                        request,
+                        502,
+                        rpc_id,
+                        UPSTREAM_UNAVAILABLE,
+                        "Upstream server error",
+                        ctx.rl_headers,
+                    )
+
+                # Build response headers
+                response_headers = dict(ctx.rl_headers)
+                if request_id:
+                    response_headers["X-Request-Id"] = request_id
+
+                # Audit the session termination
+                await record_event(
+                    runtime.session_factory,
+                    event_type=AuditEventType.TOOL_CALL,
+                    outcome="allowed",
+                    tenant_id=ctx.subject.tenant_id,
+                    subject_id=ctx.subject.subject_id,
+                    subject_type=ctx.subject.subject_type,
                     server_slug=server_slug,
-                    tool_or_method=tool_name or method,
-                    policy=policy,
-                )
-            except RedisError as exc:
-                logger.error("proxy.rate_limit_redis_error", error=str(exc))
-                return _json_error(
-                    request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable"
+                    tool_name="session/terminate",
+                    rpc_method=method,
+                    client_ip=client_ip,
+                    request_id=request_id,
+                    detail={"terminated_session_id": inbound_session_id},
                 )
 
-            rl_headers = _rate_limit_headers(rl_result)
-
-            if not rl_result.allowed:
-                retry_headers = dict(rl_headers)
-                retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
-                RATE_LIMIT_REJECTIONS.labels(server_slug=server_slug, scope="per_subject").inc()
-                return _json_error(
-                    request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers
+                return Response(
+                    content=upstream_response.content,
+                    status_code=upstream_response.status_code,
+                    headers=response_headers,
+                    media_type="application/json",
                 )
 
             # -------------------------------------------------------------------------
-            # Step 7: Build upstream headers
+            # Step 5: Resolve rate-limit policy and check
             # -------------------------------------------------------------------------
-            service_token: str | None = None
-            if server.auth_mode == ServerAuthMode.SERVICE_TOKEN:
-                service_token = extract_service_token(server.service_token_env_var)
+            error = await ctx.check_rate_limit(resource_name or method, rpc_id)
+            if error:
+                return error
 
-            upstream_headers = build_upstream_headers(dict(request.headers), service_token)
+            # -------------------------------------------------------------------------
+            # Step 5b: Usage-billing cap check (opt-in, self-host unlimited by default)
+            # -------------------------------------------------------------------------
+            await record_usage(
+                session,
+                tenant_id=ctx.subject.tenant_id,
+                requests=1,
+                tool_calls=1 if method == "tools/call" else 0,
+            )
+            if method == "tools/call":
+                under_cap = await check_usage_cap(session, ctx.subject.tenant_id, settings)
+                if not under_cap:
+                    return _json_error(
+                        request,
+                        402,
+                        rpc_id,
+                        INVALID_REQUEST,
+                        "Monthly usage cap reached for this plan",
+                    )
+
+            # -------------------------------------------------------------------------
+            # Step 6: Build upstream headers
+            # -------------------------------------------------------------------------
+            upstream_headers = ctx.build_upstream_headers()
 
             # Preserve the client's session id across the hop.  ``build_upstream_headers``
             # copies allowed headers verbatim, so inbound Mcp-Session-Id already flows
@@ -309,18 +490,20 @@ async def mcp_proxy(
             inbound_session_id = request.headers.get("mcp-session-id")
 
             # -------------------------------------------------------------------------
-            # Step 8: Forward to upstream (buffered unless the method implies SSE)
+            # Step 7: Forward to upstream (buffered unless the method implies SSE)
             # -------------------------------------------------------------------------
             should_stream = request.headers.get("accept") == "text/event-stream"
             proxy = McpProxy(runtime.http_client, settings)
+            upstream_start = time.perf_counter()
             try:
                 upstream_response = await proxy.forward(
-                    upstream_url=server.upstream_url,
+                    upstream_url=ctx.server.upstream_url,
                     path="",
                     method=request.method,
                     headers=upstream_headers,
                     body=body,
                     stream=should_stream,
+                    server=ctx.server,
                 )
             except UpstreamError as exc:
                 logger.error("proxy.upstream_error", server_slug=server_slug, error=str(exc))
@@ -330,19 +513,21 @@ async def mcp_proxy(
                     rpc_id,
                     UPSTREAM_UNAVAILABLE,
                     "Upstream server error",
-                    rl_headers,
+                    ctx.rl_headers,
                 )
+            finally:
+                UPSTREAM_REQUEST_DURATION.labels(server_slug=server_slug).observe(time.perf_counter() - upstream_start)
 
             # Capture upstream session id once the response headers are known.
             upstream_session_id = upstream_response.headers.get("mcp-session-id")
 
             # -------------------------------------------------------------------------
-            # Step 9 / 10: Handle response
+            # Step 8 / 9: Handle response
             # -------------------------------------------------------------------------
 
             # Notifications: return 202 with no body.
             if rpc_id is None:
-                response_headers = dict(rl_headers)
+                response_headers = dict(ctx.rl_headers)
                 if request_id:
                     response_headers["X-Request-Id"] = request_id
                 if upstream_session_id and upstream_session_id != inbound_session_id:
@@ -350,7 +535,7 @@ async def mcp_proxy(
                 return Response(status_code=202, headers=response_headers)
 
             # Build base response headers
-            response_headers = dict(rl_headers)
+            response_headers = dict(ctx.rl_headers)
             if request_id:
                 response_headers["X-Request-Id"] = request_id
 
@@ -368,8 +553,8 @@ async def mcp_proxy(
                     await session_store.delete(inbound_session_id)
                 await session_store.record(
                     upstream_session_id,
-                    tenant_id=subject.tenant_id,
-                    subject_id=subject.subject_id,
+                    tenant_id=ctx.subject.tenant_id,
+                    subject_id=ctx.subject.subject_id,
                     server_slug=server_slug,
                 )
                 response_headers["Mcp-Session-Id"] = upstream_session_id
@@ -393,8 +578,8 @@ async def mcp_proxy(
                     media_type=content_type or "text/event-stream",
                 )
 
-            # tools/list: buffer, parse, filter, return
-            if method == "tools/list":
+            # tools/list, resources/list, prompts/list, roots/list: buffer, parse, filter, return
+            if method in {"tools/list", "resources/list", "prompts/list", "roots/list"}:
                 raw_body = upstream_response.content
                 try:
                     response_body: dict[str, Any] = json.loads(raw_body)
@@ -406,25 +591,35 @@ async def mcp_proxy(
                         media_type=content_type or "application/json",
                     )
 
-                filtered = await filter_tools_list(response_body, subject, server_slug, session)
+                if method == "tools/list":
+                    filtered = await filter_tools_list(response_body, ctx.subject, server_slug, session)
+                elif method == "resources/list":
+                    filtered = await filter_resources_list(response_body, ctx.subject, server_slug, session)
+                elif method == "prompts/list":
+                    filtered = await filter_prompts_list(response_body, ctx.subject, server_slug, session)
+                elif method == "roots/list":
+                    filtered = await filter_roots_list(response_body, ctx.subject, server_slug, session)
+                else:
+                    filtered = response_body
+
                 return JSONResponse(
                     content=filtered,
                     status_code=upstream_response.status_code,
                     headers=response_headers,
                 )
 
-            # Default: buffer and return. Audit tool calls on success.
-            if method == "tools/call" and upstream_response.status_code < 500:
+            # Default: buffer and return. Audit tool calls and other operations on success.
+            if method in {"tools/call", "resources/read", "prompts/get", "sampling/createMessage"} and upstream_response.status_code < 500:
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
                 await record_event(
                     runtime.session_factory,
                     event_type=AuditEventType.TOOL_CALL,
                     outcome="allowed",
-                    tenant_id=subject.tenant_id,
-                    subject_id=subject.subject_id,
-                    subject_type=subject.subject_type,
+                    tenant_id=ctx.subject.tenant_id,
+                    subject_id=ctx.subject.subject_id,
+                    subject_type=ctx.subject.subject_type,
                     server_slug=server_slug,
-                    tool_name=tool_name,
+                    tool_name=resource_name,
                     rpc_method=method,
                     client_ip=client_ip,
                     request_id=request_id,
@@ -464,123 +659,55 @@ async def mcp_sse_stream(
     settings: Settings = get_settings()
 
     request_id = getattr(request.state, "request_id", None)
-    client_ip = getattr(request.client, "host", "unknown") if request.client else "unknown"
-
-    try:
-        pre_auth_limit, pre_auth_window = parse_default(settings.auth_rate_limit_default)
-        pre_auth_result = await check_pre_auth_limit(
-            client_ip,
-            runtime.redis,
-            pre_auth_limit,
-            pre_auth_window,
-        )
-    except RedisError as exc:
-        logger.error("proxy.pre_auth_redis_error", error=str(exc))
-        return _json_error(request, 503, None, INTERNAL_ERROR, "Rate limit backend unavailable")
-
-    if not pre_auth_result.allowed:
-        headers = _rate_limit_headers(pre_auth_result)
-        headers["Retry-After"] = str(int(pre_auth_result.retry_after_seconds))
-        RATE_LIMIT_REJECTIONS.labels(server_slug="_pre_auth", scope="pre_auth").inc()
-        return _json_error(
-            request, 429, None, RATE_LIMITED, "Pre-auth rate limit exceeded", headers
-        )
-
-    authorization = request.headers.get("authorization", "")
-    raw_token = authorization.removeprefix("Bearer ").strip()
-    if not raw_token:
-        AUTH_FAILURES.labels(reason="missing_credentials").inc()
-        return _json_error(request, 401, None, UNAUTHORIZED, "Invalid or missing credentials")
 
     async with runtime.session_factory() as session:
         try:
-            subject = await authenticate(raw_token, settings, session)
-        except ValueError:
-            AUTH_FAILURES.labels(reason="invalid_credentials").inc()
-            await record_event(
-                runtime.session_factory,
-                event_type=AuditEventType.AUTH_FAILURE,
-                outcome="denied",
-                server_slug=server_slug,
-                client_ip=client_ip,
-                request_id=request_id,
-            )
-            return _json_error(request, 401, None, UNAUTHORIZED, "Invalid or missing credentials")
+            ctx = _AuthContext(request, runtime, settings, server_slug, session)
 
-        try:
-            repo = ServerRepository(session)
-            server = await repo.get_by_slug(DEFAULT_TENANT_ID, server_slug)
-            if server is None:
-                return _json_error(
-                    request, 503, None, UPSTREAM_UNAVAILABLE, f"Server '{server_slug}' not found"
-                )
-            if server.status in (ServerStatus.DISABLED, ServerStatus.UNHEALTHY):
-                return _json_error(
-                    request,
-                    503,
-                    None,
-                    UPSTREAM_UNAVAILABLE,
-                    f"Server '{server_slug}' is {server.status.value}",
-                )
+            # Run pre-auth checks
+            error = await ctx.run_pre_auth_checks()
+            if error:
+                return error
 
-            rl_repo = RateLimitRepository(session)
-            policies = await rl_repo.list(DEFAULT_TENANT_ID)
-            policy = resolve_policy(
-                subject.subject_id,
-                server_slug,
-                "stream",
-                policies,
-                settings.rate_limit_default,
-            )
-            try:
-                limiter = RateLimiter(runtime.redis)
-                rl_result = await limiter.check(
-                    tenant_id=DEFAULT_TENANT_ID,
-                    subject_id=subject.subject_id,
-                    server_slug=server_slug,
-                    tool_or_method="stream",
-                    policy=policy,
-                )
-            except RedisError as exc:
-                logger.error("proxy.rate_limit_redis_error", error=str(exc))
-                return _json_error(
-                    request, 503, None, INTERNAL_ERROR, "Rate limit backend unavailable"
-                )
+            # Resolve and validate server
+            error = await ctx.resolve_server()
+            if error:
+                return error
 
-            rl_headers = _rate_limit_headers(rl_result)
-            if not rl_result.allowed:
-                retry_headers = dict(rl_headers)
-                retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
-                RATE_LIMIT_REJECTIONS.labels(server_slug=server_slug, scope="per_subject").inc()
-                return _json_error(
-                    request, 429, None, RATE_LIMITED, "Rate limit exceeded", retry_headers
-                )
+            # Check rate limit for stream
+            error = await ctx.check_rate_limit("stream")
+            if error:
+                return error
 
-            service_token: str | None = None
-            if server.auth_mode == ServerAuthMode.SERVICE_TOKEN:
-                service_token = extract_service_token(server.service_token_env_var)
+            # Record usage for the streaming connection (one request, no tool call).
+            await record_usage(session, tenant_id=ctx.subject.tenant_id, requests=1)
 
-            upstream_headers = build_upstream_headers(dict(request.headers), service_token)
+            # Build upstream headers
+            upstream_headers = ctx.build_upstream_headers()
             inbound_session_id = request.headers.get("mcp-session-id")
 
             proxy = McpProxy(runtime.http_client, settings)
+            upstream_start = time.perf_counter()
             try:
                 upstream_response = await proxy.forward(
-                    upstream_url=server.upstream_url,
+                    upstream_url=ctx.server.upstream_url,
                     path="",
                     method="GET",
                     headers=upstream_headers,
                     body=b"",
                     stream=True,
+                    server=ctx.server,
                 )
             except UpstreamError as exc:
                 logger.error("proxy.upstream_error", server_slug=server_slug, error=str(exc))
                 return _json_error(
-                    request, 502, None, UPSTREAM_UNAVAILABLE, "Upstream server error", rl_headers
+                    request, 502, None, UPSTREAM_UNAVAILABLE, "Upstream server error", ctx.rl_headers
                 )
+            finally:
+                UPSTREAM_REQUEST_DURATION.labels(server_slug=server_slug).observe(time.perf_counter() - upstream_start)
 
             upstream_session_id = upstream_response.headers.get("mcp-session-id")
-            response_headers = dict(rl_headers)
+            response_headers = dict(ctx.rl_headers)
             if request_id:
                 response_headers["X-Request-Id"] = request_id
             if upstream_session_id:
@@ -589,8 +716,8 @@ async def mcp_sse_stream(
                     await session_store.delete(inbound_session_id)
                 await session_store.record(
                     upstream_session_id,
-                    tenant_id=subject.tenant_id,
-                    subject_id=subject.subject_id,
+                    tenant_id=ctx.subject.tenant_id,
+                    subject_id=ctx.subject.subject_id,
                     server_slug=server_slug,
                 )
                 response_headers["Mcp-Session-Id"] = upstream_session_id

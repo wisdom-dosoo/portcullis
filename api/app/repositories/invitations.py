@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.orm import Invitation, InvitationStatus
+from app.models.orm import Invitation, InvitationStatus, OrgRole
 
 
 class InvitationRepository:
@@ -26,6 +26,7 @@ class InvitationRepository:
         created_by: UUID | None = None,
         email: str | None = None,
         expires_at: datetime | None = None,
+        role: OrgRole = OrgRole.DEVELOPER,
     ) -> Invitation:
         """Persist a new invitation and return the ORM instance."""
         invitation = Invitation(
@@ -35,6 +36,7 @@ class InvitationRepository:
             email=email,
             code_hash=code_hash,
             expires_at=expires_at,
+            role=role,
         )
         self._session.add(invitation)
         await self._session.flush()

@@ -16,6 +16,7 @@ from app.auth.subject import Subject
 from app.main import create_app
 from app.models.orm import (
     InvitationStatus,
+    OrgRole,
     SubjectType,
     UserApprovalStatus,
 )
@@ -66,6 +67,8 @@ def _make_orm_user(
     obj.password_hash = "$argon2id$dummy"
     obj.is_active = approval_status is UserApprovalStatus.APPROVED
     obj.approval_status = approval_status
+    obj.is_platform_admin = False
+    obj.org_role = None
     obj.access_token = None
     obj.created_at = NOW
     obj.updated_at = NOW
@@ -84,6 +87,7 @@ def _make_orm_invitation(
     obj.email = None
     obj.code_hash = "abcd" * 16
     obj.status = status
+    obj.role = OrgRole.DEVELOPER
     obj.redeemed_by = None
     obj.redeemed_at = None
     obj.expires_at = None
@@ -148,9 +152,11 @@ class TestRegisterFlows:
             patch("app.api.auth.InviteService") as MockInvites,
             patch("app.api.auth.issue_key", new_callable=AsyncMock) as mock_issue,
             patch("app.api.auth.PasswordService") as MockPasswords,
+            patch("app.api.auth.require_license", new_callable=AsyncMock) as mock_license,
         ):
             mock_users = MockUsers.return_value
             mock_users.get_by_email = AsyncMock(return_value=None)
+            mock_users.count = AsyncMock(return_value=0)
             mock_users.create = AsyncMock(return_value=user)
 
             mock_invites = MockInvites.return_value
@@ -399,9 +405,11 @@ class TestPendingUsers:
         with (
             patch("app.api.auth.UserRepository") as MockUsers,
             patch("app.api.auth.issue_key", new_callable=AsyncMock) as mock_issue,
+            patch("app.api.auth.require_license", new_callable=AsyncMock) as mock_license,
         ):
             mock_users = MockUsers.return_value
             mock_users.get_by_id = AsyncMock(return_value=user)
+            mock_users.count = AsyncMock(return_value=0)
             mock_users.set_approval_status = AsyncMock(return_value=True)
 
             mock_issue.return_value = MagicMock(plaintext=plaintext, scopes=frozenset())

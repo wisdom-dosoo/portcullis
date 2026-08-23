@@ -249,7 +249,7 @@ export function GlobalSearch({ context }: { context: NavContext }) {
       type:     "user" as ResourceType,
       title:    r.name,
       subtitle: `Role · created ${new Date(r.created_at).toLocaleDateString()}`,
-      href:     "/dashboard/team",
+      href:     "/dashboard/access-control?tab=roles",
     }));
 
     /* Policies (rate-limit policies — keyed on subject_id / server_pattern / tool_pattern) */
@@ -700,7 +700,7 @@ const SUGGESTED: Array<{ label: string; icon: React.ElementType; href: (ctx: Nav
   { label: "API Keys",      icon: Key,        href: (c) => c === "developer" ? "/developer/api-keys"   : "/dashboard/api-keys",   color: "var(--pc-warning)",   bg: "rgba(244,185,66,0.12)" },
   { label: "Audit Log",     icon: FileText,   href: () => "/dashboard/audit",      color: "#F97316",             bg: "rgba(249,115,22,0.12)" },
   { label: "Documentation", icon: BookOpen,   href: () => "/developer/docs",       color: "var(--pc-muted)",     bg: "rgba(139,152,167,0.12)" },
-  { label: "Team",          icon: Users,      href: () => "/dashboard/team",       color: "#A78BFA",             bg: "rgba(167,139,250,0.12)" },
+  { label: "Access Control", icon: Users,      href: () => "/dashboard/access-control", color: "#A78BFA", bg: "rgba(167,139,250,0.12)" },
   { label: "Traffic",       icon: Layers,     href: () => "/dashboard/traffic",    color: "var(--pc-primary)",   bg: "rgba(45,212,167,0.08)" },
 ];
 

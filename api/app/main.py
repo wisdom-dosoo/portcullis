@@ -17,9 +17,12 @@ from fastapi.responses import Response as PlainResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
 
+from app import __version__
 from app.api.health import router as health_router
 from app.config import get_settings
 from app.gateway.health_monitor import HealthMonitor
+from app.gateway.management_rate_limit import ManagementApiRateLimitMiddleware
+from app.gateway.origin_check import OriginValidationMiddleware
 from app.observability.metrics import REQUEST_DURATION, REQUESTS_TOTAL, metrics_response
 from app.observability.otel import configure_otel, shutdown_otel
 from app.runtime import Runtime
@@ -38,15 +41,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     runtime = Runtime.build(settings)
     app.state.runtime = runtime
+    app.state.settings = settings
 
     monitor = HealthMonitor(runtime.session_factory, runtime.http_client, settings)
     app.state.monitor = monitor
     monitor_task = asyncio.create_task(monitor.start())
 
+    # Opt-in self-host telemetry: only runs when the operator enables it AND
+    # points telemetry_endpoint_url at a receiving /v1/telemetry/heartbeat.
+    telemetry_task = None
+    if settings.telemetry_enabled and settings.telemetry_endpoint_url:
+        from app.telemetry.identity import InstallIdentity
+        from app.telemetry.reporter import TelemetryReporter
+
+        identity = InstallIdentity(
+            install_id=settings.telemetry_install_id,
+            state_file=settings.telemetry_state_file,
+        )
+        reporter = TelemetryReporter(
+            settings=settings,
+            session_factory=runtime.session_factory,
+            http_client=runtime.http_client,
+            identity=identity,
+        )
+        app.state.telemetry_reporter = reporter
+        telemetry_task = asyncio.create_task(reporter.start())
+
     logger.info("app.startup", environment=settings.environment)
     try:
         yield
     finally:
+        if telemetry_task is not None:
+            await app.state.telemetry_reporter.stop()
+            await telemetry_task
         await monitor.stop()
         await monitor_task
         await runtime.close()
@@ -126,7 +153,7 @@ def create_app() -> FastAPI:
 
     application = FastAPI(
         title="Portcullis",
-        version="0.2.0",
+        version=__version__,
         lifespan=lifespan,
         default_response_class=JSONResponse,
     )
@@ -137,16 +164,22 @@ def create_app() -> FastAPI:
     application.add_middleware(RequestIdMiddleware)
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=list(settings.cors_allowed_origins),
+        allow_origins=list(settings.cors_origins_tuple),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.add_middleware(OriginValidationMiddleware, settings=settings)
+    application.add_middleware(ManagementApiRateLimitMiddleware)
     application.include_router(health_router)
 
     from app.api.auth import router as auth_router
 
     application.include_router(auth_router)
+
+    from app.api.sso import router as sso_router
+
+    application.include_router(sso_router)
 
     from app.api.servers import router as servers_router
 
@@ -171,6 +204,26 @@ def create_app() -> FastAPI:
     from app.api.platform import router as platform_router
 
     application.include_router(platform_router)
+
+    from app.api.licenses import admin_router as admin_license_router
+    from app.api.licenses import org_router as license_router
+    from app.api.licenses import tenant_license_router
+
+    application.include_router(admin_license_router)
+    application.include_router(license_router)
+    application.include_router(tenant_license_router)
+
+    from app.api.tenants import router as tenants_router
+
+    application.include_router(tenants_router)
+
+    from app.api.usage import router as usage_router
+
+    application.include_router(usage_router)
+
+    from app.api.telemetry import router as telemetry_router
+
+    application.include_router(telemetry_router)
 
     from app.gateway.router import router as proxy_router
 

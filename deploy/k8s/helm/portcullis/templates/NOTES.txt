@@ -1,0 +1,89 @@
+Thank you for installing Portcullis!
+
+## Next Steps
+
+### 1. Configure Secrets
+
+Create a secret with your production values:
+
+```bash
+kubectl create secret generic portcullis-secrets \
+  --namespace {{ .Release.Namespace }} \
+  --from-literal=API_KEY_PEPPER="your-production-pepper-32-chars-min" \
+  --from-literal=JWT_JWKS_URL="https://your-idp.com/.well-known/jwks.json" \
+  --from-literal=JWT_ISSUER="https://your-idp.com/" \
+  --from-literal=JWT_AUDIENCE="portcullis" \
+  --from-literal=SSO_OIDC_CLIENT_SECRET="your-oidc-client-secret"
+```
+
+### 2. Configure External Services
+
+Update `values.yaml` or use `--set` for:
+
+- **PostgreSQL**: `postgresql.enabled=true` (internal) or `externalDatabase.enabled=true` (external)
+- **Redis**: `redis.mode=sentinel` with `redis.sentinelHosts`
+- **Ingress**: `ingress.enabled=true` with your domain and TLS
+
+### 3. Verify Deployment
+
+```bash
+# Check pods
+kubectl get pods -l app.kubernetes.io/name=portcullis -n {{ .Release.Namespace }}
+
+# Check logs
+kubectl logs -l app.kubernetes.io/name=portcullis -n {{ .Release.Namespace }}
+
+# Check metrics
+kubectl port-forward svc/{{ include "portcullis.fullname" . }} 8080:8080 -n {{ .Release.Namespace }}
+curl http://localhost:8080/metrics
+curl http://localhost:8080/healthz
+```
+
+### 4. Register Your First MCP Server
+
+```bash
+curl -X POST https://portcullis.example.com/v1/servers \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "GitHub MCP",
+    "slug": "github-mcp",
+    "upstream_url": "https://github-mcp.internal/mcp",
+    "transport": "streamable_http",
+    "auth_mode": "service_token",
+    "health_check_path": "/healthz"
+  }'
+```
+
+### 5. Access the Dashboard
+
+Visit: `https://{{ .Values.ingress.hosts[0].host }}/admin`
+
+### 5. Backup Configuration
+
+If `backup.enabled=true`, backups run daily at 2 AM UTC to S3.
+Restore with:
+```bash
+# Download backup
+aws s3 cp s3://your-bucket/prefix/portcullis_20240115_020000.sql.gz .
+
+# Restore
+gunzip -c portcullis_20240115_020000.sql.gz | psql -h <pgbouncer-host> -U portcullis -d portcullis
+```
+
+### Monitoring
+
+- **Prometheus**: ServiceMonitor created at `{{ include "portcullis.fullname" . }}`
+- **Grafana**: Import dashboard from `docs/grafana/portcullis-dashboard.json`
+- **Alerts**: PrometheusRules created if `monitoring.prometheusRules.enabled=true`
+
+### Scaling
+
+The HPA scales based on CPU (70%) and Memory (80%).
+Manual scale: `kubectl scale deployment {{ include "portcullis.fullname" . }} --replicas=5 -n {{ .Release.Namespace }}`
+
+### Documentation
+
+- Horizontal Scaling: `docs/operations/horizontal-scaling.md`
+- Architecture: `docs/architecture.md`
+- API Reference: `docs/api-reference.md`

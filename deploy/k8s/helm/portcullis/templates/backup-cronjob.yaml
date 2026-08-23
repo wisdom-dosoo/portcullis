@@ -1,0 +1,77 @@
+{{- if and .Values.backup.enabled .Values.postgresql.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "portcullis.fullname" . }}-backup
+  labels:
+    {{- include "portcullis.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "portcullis.serviceAccountName" . }}
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: PGHOST
+                  value: {{ include "portcullis.postgresql.fullname" . }}
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: portcullis
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "portcullis.postgresql.fullname" . }}
+                      key: postgres-password
+                - name: BACKUP_BUCKET
+                  value: {{ .Values.backup.storage.bucket }}
+                - name: BACKUP_PREFIX
+                  value: {{ .Values.backup.storage.prefix }}
+                - name: BACKUP_REGION
+                  value: {{ .Values.backup.storage.region }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.storage.credentialsSecret }}
+                      key: access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.storage.credentialsSecret }}
+                      key: secret-access-key
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  DATE=$(date +%Y%m%d_%H%M%S)
+                  FILE="portcullis_${DATE}.sql.gz"
+                  echo "Starting backup to s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/${FILE}"
+                  pg_dump --no-owner --no-acl | gzip | aws s3 cp - s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/${FILE}
+                  echo "Backup completed: ${FILE}"
+                  # Cleanup old backups
+                  aws s3 ls s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/ | while read -r line; do
+                    FILE_DATE=$(echo $line | awk '{print $1" "$2}')
+                    FILE_NAME=$(echo $line | awk '{print $4}')
+                    if [[ $(date -d "$FILE_DATE" +%s) -lt $(date -d "-{{ .Values.backup.retentionDays }} days" +%s) ]]; then
+                      echo "Deleting old backup: $FILE_NAME"
+                      aws s3 rm s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/$FILE_NAME
+                    fi
+                  done
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+{{- end }}

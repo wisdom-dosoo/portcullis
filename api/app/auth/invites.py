@@ -20,7 +20,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.orm import Invitation, InvitationStatus
+from app.models.orm import Invitation, InvitationStatus, OrgRole
 from app.repositories.invitations import InvitationRepository
 
 # Avoid ambiguous characters when humans transcribe codes (no 0/O/1/l/I).
@@ -72,6 +72,7 @@ class InviteService:
         created_by: UUID | None = None,
         email: str | None = None,
         expires_in_days: int | None = None,
+        role: OrgRole = OrgRole.DEVELOPER,
     ) -> tuple[Invitation, str]:
         """Create a new invitation and return ``(invitation, plaintext_code)``."""
         code = self.generate_code()
@@ -88,6 +89,7 @@ class InviteService:
             created_by=created_by,
             email=email,
             expires_at=expires_at,
+            role=role,
         )
         return invitation, code
 

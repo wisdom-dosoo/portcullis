@@ -49,6 +49,16 @@ class RbacRepository:
         )
         return result.first()
 
+    async def get_role_by_name(self, tenant_id: UUID, name: str) -> Role | None:
+        """Return a role by name scoped to tenant, or None if not found."""
+        result = await self._session.scalars(
+            select(Role).where(
+                Role.tenant_id == tenant_id,
+                Role.name == name,
+            )
+        )
+        return result.first()
+
     # ------------------------------------------------------------------
     # Role bindings
     # ------------------------------------------------------------------
@@ -112,6 +122,19 @@ class RbacRepository:
             )
         )
         return cursor.rowcount > 0
+
+    async def get_permission_by_patterns(
+        self, role_id: UUID, server_pattern: str, tool_pattern: str
+    ) -> ToolPermission | None:
+        """Return a permission matching the given role and patterns, or None."""
+        result = await self._session.scalars(
+            select(ToolPermission).where(
+                ToolPermission.role_id == role_id,
+                ToolPermission.server_pattern == server_pattern,
+                ToolPermission.tool_pattern == tool_pattern,
+            )
+        )
+        return result.first()
 
     async def get_permissions_for_subject(
         self,
