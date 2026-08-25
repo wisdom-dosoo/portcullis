@@ -613,3 +613,98 @@ class InstanceSummaryView(BaseModel):
 
     total: int
     active_24h: int
+
+
+
+
+
+
+
+
+
+
+class ScimUser(BaseModel):
+    """SCIM 1.1/1.2 User resource."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    meta: dict | None = None
+    created: datetime | None = None
+    lastModified: datetime | None = None
+    location: str | None = None
+    disabled: bool | None = None
+    riskScores: list[dict[str, Any]] | None = None
+    alternates: list[str] | None = None
+
+    userName: str
+    nickName: str | None = None
+    profileUrl: str | None = None
+    locale: str | None = None
+    timezone: str | None = None
+    title: str | None = None
+    favoriteColor: str | None = None
+    displayName: str | None = None
+
+    name: dict[str, str | None] | None = None
+    employeeNumber: str | None = None
+    employeeType: str | None = None
+    department: str | None = None
+    organization: str | None = None
+    division: str | None = None
+    costCenter: str | None = None
+    manager: str | None = None
+
+    active: bool | None = None
+    groups: list[str] | None = None
+
+    schemas: list[str] = Field(default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:User"])
+    emoji: str | None = None
+
+
+class ScimGroup(BaseModel):
+    """SCIM 1.1/1.2 Group resource."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    meta: dict | None = None
+    created: datetime | None = None
+    lastModified: datetime | None = None
+    location: str | None = None
+    version: str | None = None
+    master: bool | None = None
+
+    name: str
+    description: str | None = None
+
+    path: str | None = None
+    privilege: str | None = None
+    origin: str | None = None
+
+    literalExpression: str | None = None
+    filter: str | None = None
+
+    members: list[dict[str, str]] | None = None
+
+    schemas: list[str] = Field(default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:Group"])
+    classified: bool | None = None
+    lastModified: datetime | None = None
+    location: str | None = None
+    version: str | None = None
+    master: bool | None = None
+
+    name: str
+    description: str | None = None
+
+    path: str | None = None
+    privilege: str | None = None
+    origin: str | None = None
+
+    literalExpression: str | None = None
+    filter: str | None = None
+
+    members: list[dict[str, str]] | None = None
+
+    schemas: list[str] = Field(default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:Group"])
+    classified: bool | None = None

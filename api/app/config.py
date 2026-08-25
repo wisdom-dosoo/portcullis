@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     # Public base URL of this Portcullis instance — used to build the SSO
     # callback URL the IdP redirects back to.
     sso_public_base_url: str = "http://localhost:8000"
+    # IdP logout URL for single logout (SLO). Optional.
+    sso_oidc_logout_url: str | None = None
 
     # Usage metering / billing-tier enforcement. Metering always records usage;
     # enforcement is opt-in so self-hosted deployments stay unlimited by
@@ -124,6 +126,28 @@ class Settings(BaseSettings):
     # same anonymous id across restarts (and across migrations to Cloud).
     telemetry_install_id: str | None = None
     telemetry_state_file: str = ".portcullis/install_id"
+
+    # Email delivery — pluggable providers (console, smtp, sendgrid, resend)
+    email_provider: str = "console"
+    email_from: str = "noreply@portcullis.local"
+    email_from_name: str = "Portcullis"
+    # SMTP
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool | None = True
+    smtp_use_ssl: bool | None = False
+    # SendGrid
+    sendgrid_api_key: str | None = None
+    # Resend
+    resend_api_key: str | None = None
+
+    # Stripe billing
+    stripe_webhook_secret: str | None = None
+    stripe_api_key: str | None = None
+    stripe_price_id_pro: str | None = None
+    stripe_price_id_enterprise: str | None = None
 
     # OpenTelemetry — disabled when endpoint is unset
     otel_endpoint: str | None = None

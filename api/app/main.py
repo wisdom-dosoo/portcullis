@@ -205,6 +205,10 @@ def create_app() -> FastAPI:
 
     application.include_router(platform_router)
 
+    from app.api.scim import router as scim_router
+
+    application.include_router(scim_router)
+
     from app.api.licenses import admin_router as admin_license_router
     from app.api.licenses import org_router as license_router
     from app.api.licenses import tenant_license_router
@@ -224,6 +228,10 @@ def create_app() -> FastAPI:
     from app.api.telemetry import router as telemetry_router
 
     application.include_router(telemetry_router)
+
+    from app.api.billing import router as billing_router
+
+    application.include_router(billing_router)
 
     from app.gateway.router import router as proxy_router
 

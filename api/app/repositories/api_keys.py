@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -61,6 +61,16 @@ class ApiKeyRepository:
         )
         return result.first()
 
+    async def get_by_id_any_status(self, key_id: UUID, tenant_id: UUID) -> ApiKey | None:
+        """Return the key with the given ID regardless of revocation status."""
+        result = await self._session.scalars(
+            select(ApiKey).where(
+                ApiKey.id == key_id,
+                ApiKey.tenant_id == tenant_id,
+            )
+        )
+        return result.first()
+
     async def list_active(self, tenant_id: UUID) -> list[ApiKey]:
         """Return all non-revoked API keys for the given tenant."""
         result = await self._session.scalars(
@@ -68,6 +78,15 @@ class ApiKeyRepository:
                 ApiKey.tenant_id == tenant_id,
                 ApiKey.revoked_at.is_(None),
             )
+        )
+        return list(result.all())
+
+    async def list_by_subject(self, subject_id: UUID) -> list[ApiKey]:
+        """Return all API keys for a subject (by user_id)."""
+        result = await self._session.scalars(
+            select(ApiKey).where(
+                ApiKey.user_id == subject_id,
+            ).order_by(ApiKey.created_at.desc())
         )
         return list(result.all())
 
@@ -89,3 +108,43 @@ class ApiKeyRepository:
         await self._session.execute(
             update(ApiKey).where(ApiKey.id == key_id).values(last_used_at=datetime.now(UTC))
         )
+
+    # --- Rotation support methods ---
+
+    async def get_expiring_keys(self, warning_days: int, max_age_days: int) -> list[ApiKey]:
+        """Get keys that are expiring within warning_days or have exceeded max_age_days."""
+        now = datetime.now(UTC)
+        warning_threshold = now + timedelta(days=warning_days)
+        max_age_threshold = now - timedelta(days=max_age_days) if max_age_days else None
+
+        stmt = select(ApiKey).where(
+            ApiKey.revoked_at.is_(None),
+            ApiKey.expires_at.is_not(None),
+            ApiKey.expires_at <= warning_threshold,
+        )
+        if max_age_threshold:
+            stmt = stmt.where(ApiKey.created_at < max_age_threshold)
+
+        result = await self._session.scalars(stmt)
+        return list(result.all())
+
+    async def get_expired_keys(self) -> list[ApiKey]:
+        """Get all expired but not revoked keys."""
+        now = datetime.now(UTC)
+        result = await self._session.scalars(
+            select(ApiKey).where(
+                ApiKey.revoked_at.is_(None),
+                ApiKey.expires_at.is_not(None),
+                ApiKey.expires_at < now,
+            )
+        )
+        return list(result.all())
+
+    async def list_by_tenant_and_status(self, tenant_id: UUID, active_only: bool = True) -> list[ApiKey]:
+        """List keys for a tenant, optionally filtering by active status."""
+        stmt = select(ApiKey).where(ApiKey.tenant_id == tenant_id)
+        if active_only:
+            stmt = stmt.where(ApiKey.revoked_at.is_(None))
+        stmt = stmt.order_by(ApiKey.created_at.desc())
+        result = await self._session.scalars(stmt)
+        return list(result.all())
