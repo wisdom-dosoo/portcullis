@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
