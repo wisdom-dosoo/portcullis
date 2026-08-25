@@ -1,69 +1,45 @@
 # Portcullis
 
-**A self-hosted Model Context Protocol (MCP) gateway — one authenticated, observable, rate-limited entry point in front of every MCP server your organization runs.**
+A high-performance, multi-tenant MCP gateway — one authenticated, observable, rate-limited entry point in front of every MCP server your organization runs.
 
-![Python](https://img.shields.io/badge/python-3.12-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688)
-![License](https://img.shields.io/badge/license-Apache--2.0-green)
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-80%25%2B-yellow)
-![MCP](https://img.shields.io/badge/MCP-2025--06--18-orange)
-
----
-
-## Table of Contents
-
-1. [Overview](#1-overview)
-2. [Why Portcullis](#2-why-portcullis)
-3. [Key Features](#3-key-features)
-4. [Non-Goals](#4-non-goals)
-5. [Architecture](#5-architecture)
-6. [Tech Stack](#6-tech-stack)
-7. [Repository Structure](#7-repository-structure)
-8. [Getting Started](#8-getting-started)
-9. [Registering an Upstream MCP Server](#9-registering-an-upstream-mcp-server)
-10. [API Reference](#10-api-reference)
-11. [Authentication & Authorization](#11-authentication--authorization)
-12. [Rate Limiting](#12-rate-limiting)
-13. [Observability](#13-observability)
-14. [Database Schema](#14-database-schema)
-15. [Security Considerations](#15-security-considerations)
-16. [Testing Strategy](#16-testing-strategy)
-17. [CI/CD Pipeline](#17-cicd-pipeline)
-18. [Deployment](#18-deployment)
-19. [Design Targets (SLOs)](#19-design-targets-slos)
-20. [Roadmap](#20-roadmap)
-21. [Architecture Decision Records](#21-architecture-decision-records)
-22. [Glossary](#22-glossary)
-23. [Contributing](#23-contributing)
-24. [License](#24-license)
+<a href="https://github.com/wisdom-dosoo/portcullis">
+  <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12">
+</img>
+<a href="https://fastapi.tiangolo.com">
+  <img src="https://img.shields.io/badge/FastAPI-0.115+-009688" alt="FastAPI">
+</img>
+<a href="https://opensource.org/licenses/Apache-2.0">
+  <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
+</img>
+<a href="https://github.com/wisdom-dosoo/portcullis/actions">
+  <img src="https://img.shields.io/github/actions/workflow/status/wisdom-dosoo/portcullis/ci.yml?branch=main" alt="CI">
+</img>
+<a href="https://github.com/wisdom-dosoo/portcullis/blob/main/LICENSE">
+  <img src="https://img.shields.io/github/last-commit/wisdom-dosoo/portcullis" alt="Last commit">
+</img>
 
 ---
 
-## 1. Overview
+## Why This Exists
 
-Portcullis is a control-plane and data-plane proxy that sits in front of one or more **Model Context Protocol (MCP)** servers. AI agents and MCP clients (Claude, Cursor, custom LangGraph/agent runtimes, etc.) talk to a single Portcullis endpoint; Portcullis handles authentication, per-tool authorization, rate limiting, distributed tracing, and audit logging, then forwards the JSON-RPC request to the correct upstream MCP server over Streamable HTTP.
+Portcullis exists because organizations running more than one Model Context Protocol (MCP) server face three immediate, urgent problems:
 
-If you run more than one internal MCP server, you have already hit the problem Portcullis exists to solve: every server reinvents its own auth, nobody can answer "which agent called which tool, when, and how often," and there is no single place to throttle a runaway agent before it takes down a downstream API.
+- **No central auth.** Each MCP server either trusts the network it's reachable from, or ships with no auth at all — acceptable for a laptop, not for a shared environment.
+- **No unified authorization.** There is no single place to say *"the on-call agent may call `deploy_rollback` but not `deploy_delete_environment.`"
+- **No observability trail.** When something goes wrong, there is no audit trail answering *"which subject invoked which tool, on which server, and what did it return."*
+- **No centralized rate limiting.** A misbehaving or compromised agent can hammer an upstream server with no backpressure, because rate limiting — if it exists — lives independently in each server, not centrally.
 
-> **Spec compliance note.** MCP is an actively evolving specification. This document targets the transport and auth model described at `https://modelcontextprotocol.io/specification` as of the 2025-06-18 revision. Before implementing, re-fetch the current spec (`https://modelcontextprotocol.io/specification/draft.md`) and diff against this document — protocol details (header names, session semantics) are the most likely thing to have moved.
-
----
-
-## 2. Why Portcullis
-
-**The problem, concretely:**
-
-- A platform team stands up `github-mcp`, `postgres-mcp`, and an internal `deploy-mcp`. Each one currently trusts whatever network it's reachable from, or worse, ships with no auth at all — acceptable for a laptop, not for a shared environment.
-- There is no single place to say *"the on-call agent may call `deploy_rollback` but not `deploy_delete_environment`."*
-- When something goes wrong, there is no audit trail answering "which subject invoked which tool, on which server, and what did it return."
-- A misbehaving or compromised agent can hammer an upstream server with no backpressure, because rate limiting — if it exists — lives independently in each server, not centrally.
-
-**What Portcullis does about it:** it is the same architectural pattern as an API gateway (Kong, Envoy, Apigee) — applied specifically to MCP's JSON-RPC-over-Streamable-HTTP traffic, with first-class understanding of MCP concepts (`tools/list`, `tools/call`, sessions) rather than treating it as opaque HTTP.
+Portcullis applies the same architectural pattern as an API gateway (Kong, Envoy, Apigee) — but specifically to MCP's JSON-RPC-over-Streamable-HTTP traffic, with first-class understanding of MCP concepts (`tools/list`, `tools/call`, sessions) rather than treating it as opaque HTTP.
 
 ---
 
-## 3. Key Features
+## What It Does
+
+Portcullis is a control-plane and data-plane proxy that sits in front of one or more MCP servers. AI agents and MCP clients (Claude, Cursor, custom LangGraph/agent runtimes, etc.) talk to a single Portcullis endpoint; Portcullis handles authentication, per-tool authorization, rate limiting, distributed tracing, and audit logging, then forwards the JSON-RPC request to the correct upstream MCP server over Streamable HTTP.
+
+**If you run more than one internal MCP server, you have already hit the problem Portcullis exists to solve.**
+
+### Key Features
 
 - **Multi-server registry** — register, health-check, enable/disable upstream MCP servers via a REST management API; no config-file redeploys needed to add a server.
 - **Pluggable authentication** — OAuth 2.1 bearer tokens validated against any OIDC-compliant IdP's JWKS endpoint, or gateway-issued API keys for simpler service-to-service use.
@@ -74,9 +50,7 @@ If you run more than one internal MCP server, you have already hit the problem P
 - **Circuit breaking & health checks** — an upstream marked unhealthy is taken out of rotation and callers get a clear `-32004` error instead of a hanging request.
 - **Zero vendor lock-in** — plain Docker image; runs on Railway, Render, Fly.io, or bare-metal behind Cloudflare.
 
----
-
-## 4. Non-Goals
+### Non-Goals
 
 Stating these explicitly avoids scope creep and sets correct expectations for contributors:
 
@@ -87,31 +61,30 @@ Stating these explicitly avoids scope creep and sets correct expectations for co
 
 ---
 
-## 5. Architecture
+## Architecture
 
-### 5.1 High-Level Diagram
+### High-Level Diagram
 
 ```
-                         ┌─────────────────────────────────────────────┐
-                         │                 Portcullis                   │
-                         │                                               │
-  MCP Client ──HTTP──▶   │  Auth Middleware ─▶ RBAC Engine ─▶ Rate Limiter│──▶ Streamable HTTP ──▶ Upstream MCP Server A
- (Claude/Cursor/         │        │                 │             │      │                        (github-mcp)
-  custom agent)          │        ▼                 ▼             ▼      │
-                         │   JWKS / API-key    Postgres        Redis      │──▶ Streamable HTTP ──▶ Upstream MCP Server B
-                         │      validation    (roles, perms)  (buckets,   │                        (postgres-mcp)
-                         │                                    sessions)   │
-                         │        │                                       │──▶ Streamable HTTP ──▶ Upstream MCP Server C
-                         │        ▼                                       │                        (internal deploy-mcp)
-                         │  OpenTelemetry span + Prometheus + Audit Log   │
-                         └─────────────────────────────────────────────┘
-                                       │
-                                       ▼
-                         Postgres (control plane: servers, roles,
-                                   permissions, audit log)
+                          ┌─────────────────────────────────────────────┐
+                          │                 Portcullis                   │
+                          │                                               │
+   MCP Client ──HTTP──▶   │  Auth Middleware ─▶ RBAC Engine ─▶ Rate Limiter│──▶ Streamable HTTP ──▶ Upstream MCP Server A
+  (Claude/Cursor/         │        │                 │             │      │                        (github-mcp)
+   custom agent)          │        │                 │             ▼      │
+                          │   JWKS / API-key    Postgres        Redis      │──▶ Streamable HTTP ──▶ Upstream MCP Server B
+                          │      validation    (roles, perms)  (buckets,   │                        (postgres-mcp)
+                          │        │                                       sessions)   │
+                          │        ▼                                       │──▶ Streamable HTTP ──▶ Upstream MCP Server C
+                          │  OpenTelemetry span + Prometheus + Audit Log   │                        (internal deploy-mcp)
+                          └─────────────────────────────────────────────┘
+                                        │
+                                        ▼
+                          Postgres (control plane: servers, roles,
+                                    permissions, audit log)
 ```
 
-### 5.2 Component Breakdown
+### Component Breakdown
 
 | Component | Responsibility |
 |---|---|
@@ -126,7 +99,7 @@ Stating these explicitly avoids scope creep and sets correct expectations for co
 | **Postgres** | System of record: tenants, servers, API keys, roles, role bindings, tool permissions, audit log |
 | **Redis** | Ephemeral/high-frequency state: rate-limit counters, session map, registry cache |
 
-### 5.3 Request Lifecycle — `tools/call`
+### Request Lifecycle — `tools/call`
 
 ```
 Client               Portcullis                              Upstream MCP Server      Postgres / Redis
@@ -139,7 +112,7 @@ Client               Portcullis                              Upstream MCP Server
   │                       │◀──────────────────────────── allow ────────────────────────────── │
   │                       │─ rate limit check (Redis Lua, atomic) ────────────────────────▶   │
   │                       │◀──────────────────────────── allow, remaining=42 ──────────────────│
-  │                       │─ open OTel span "mcp.tools.call" ─────────│                     │
+  │                       │─ open OTel span "mcp.tools.call" ─────│                     │
   │                       │─ forward JSON-RPC (Streamable HTTP) ─────▶│                     │
   │                       │                                            │─ execute tool       │
   │                       │◀──────────────── JSON-RPC result ──────────│                     │
@@ -147,9 +120,9 @@ Client               Portcullis                              Upstream MCP Server
   │◀── JSON-RPC response ─│                                            │                     │
 ```
 
-A denied request (RBAC or rate limit) **never reaches the upstream** — it is rejected at the gateway with a JSON-RPC error object (see [§10.3](#103-json-rpc-error-codes)), and the denial itself is still written to the audit log.
+A denied request (RBAC or rate limit) **never reaches the upstream** — it is rejected at the gateway with a JSON-RPC error object, and the denial itself is still written to the audit log.
 
-### 5.4 Session & Transport Handling
+### Session & Transport Handling
 
 - **Primary transport supported: Streamable HTTP** (per MCP best practice: stdio is single-client/local-only and cannot be meaningfully proxied to multiple concurrent agents; Streamable HTTP is the only transport that fits a shared gateway).
 - On the first request in a session, Portcullis issues an `Mcp-Session-Id` and stores `{server_id, subject_id, created_at}` in Redis with a sliding TTL (`SESSION_TTL_SECONDS`, default 3600s).
@@ -159,37 +132,37 @@ A denied request (RBAC or rate limit) **never reaches the upstream** — it is r
 
 ---
 
-## 6. Tech Stack
+## Tech Stack
 
 | Layer | Choice | Why |
 |---|---|---|
 | Language / runtime | **Python 3.12** | Async performance improvements, match statement, first-class typing |
-| Web framework | **FastAPI 0.115+** | Native async, Pydantic v2 integration, automatic OpenAPI docs (dogfoods the same spec `mcp-forge` consumes) |
+| Web framework | **FastAPI 0.115+** | Native async, Pydantic v2 integration, automatic OpenAPI docs |
 | Validation | **Pydantic v2** | Fast, typed request/response models; shared between REST and internal schemas |
 | ORM / DB access | **SQLAlchemy 2.0 (async) + asyncpg** | Async end-to-end so the event loop is never blocked by DB I/O |
 | Migrations | **Alembic** | Versioned, reviewable schema changes |
 | Primary datastore | **PostgreSQL 16** | ACID guarantees for RBAC/audit data where correctness matters more than raw throughput |
 | Cache / ephemeral state | **Redis 7** | Atomic Lua scripting for rate limiting; TTL-native for sessions and registry cache |
-| MCP client | **FastMCP client / MCP Python SDK (`mcp` package)** | Official/community-standard client for speaking Streamable HTTP to upstreams |
+| MCP client | **FastMCP client / MCP Python SDK** | Official/community-standard client for speaking Streamable HTTP to upstreams |
 | AuthN | **Authlib** (JWT/JWKS validation) | Mature OAuth 2.1 / OIDC primitives; avoids hand-rolled token validation |
-| Password/API-key hashing | **argon2-cffi** | Memory-hard hashing for API key secrets (bcrypt is acceptable fallback) |
+| Password/API-key hashing | **argon2-cffi** | Memory-hard hashing for API key secrets |
 | HTTP client (to upstreams) | **httpx (async)** | Async, HTTP/2-capable, used by both the proxy and the health checker |
-| Observability | **OpenTelemetry SDK + OTLP exporter, prometheus-client, structlog** | Traces + metrics + structured logs, exportable to any OTLP-compatible backend (Jaeger, Honeycomb, Grafana Tempo) |
-| Testing | **pytest, pytest-asyncio, pytest-cov, hypothesis, testcontainers-python** | Async-first testing with real Postgres/Redis via containers, property-based tests for the rate limiter |
+| Observability | **OpenTelemetry SDK + OTLP exporter, prometheus-client, structlog** | Traces + metrics + structured logs, exportable to any OTLP-compatible backend |
+| Testing | **pytest, pytest-asyncio, pytest-cov, hypothesis, testcontainers-python** | Async-first testing with real Postgres/Redis via containers |
 | Lint / type check | **ruff, mypy** | Single fast linter+formatter, strict static typing on the control-plane code |
 | Packaging | **hatch / pyproject.toml** | Modern, PEP 621-compliant packaging |
 | Containerization | **Docker, docker-compose** | Local parity with production; multi-stage build for a slim runtime image |
 | CI/CD | **GitHub Actions** | Lint → test (with service containers) → security scan → build → publish → deploy |
-| Hosted deployment | **Railway** (primary demo), self-host via Docker elsewhere | Managed Postgres + Redis, simplest path to a stateful long-running service (ruled out Vercel/serverless — this workload needs persistent connections) |
+| Hosted deployment | **Railway** (primary demo), self-host via Docker elsewhere | Managed Postgres + Redis, simplest path to a stateful long-running service |
 | Edge | **Cloudflare** (in front of the public endpoint) | TLS termination, DDoS protection, WAF rules on the management API |
 
 ---
 
-## 7. Repository Structure
+## Repository Structure
 
 ```
 portcullis/
-├── app/
+├ app/
 │   ├── main.py                     # FastAPI app factory, router mounting, lifespan
 │   ├── config.py                   # Pydantic Settings (env-driven configuration)
 │   │
@@ -225,12 +198,12 @@ portcullis/
 │       ├── roles.py                 # /v1/roles, /v1/roles/{id}/bindings, /permissions
 │       ├── audit.py                 # /v1/audit query routes
 │       └── health.py                # /healthz
-│
-├── alembic/
+├
+├ alembic/
 │   ├── env.py
 │   └── versions/
 │
-├── tests/
+├ tests/
 │   ├── unit/
 │   │   ├── test_rbac.py
 │   │   ├── test_rate_limiter.py     # hypothesis property-based tests
@@ -240,40 +213,40 @@ portcullis/
 │   │   └── test_session_routing.py
 │   └── conftest.py
 │
-├── deploy/
+├ deploy/
 │   ├── Dockerfile
 │   ├── docker-compose.yml
 │   └── railway.toml
 │
-├── docs/
+├ docs/
 │   ├── architecture.md
 │   └── diagrams/
 │
-├── .github/
+├ .github/
 │   └── workflows/
 │       ├── ci.yml
 │       └── release.yml
 │
-├── .env.example
-├── pyproject.toml
-├── alembic.ini
-├── LICENSE
-├── SECURITY.md
-├── CONTRIBUTING.md
-└── README.md
+├ .env.example
+├ pyproject.toml
+├ alembic.ini
+├ LICENSE
+├ SECURITY.md
+├ CONTRIBUTING.md
+└ README.md
 ```
 
 ---
 
-## 8. Getting Started
+## Getting Started
 
-### 8.1 Prerequisites
+### Prerequisites
 
 - Docker + Docker Compose v2
 - Python 3.12 (only needed for local, non-Docker development)
 - An OIDC-compliant identity provider if you want to exercise OAuth 2.1 mode (Auth0/Keycloak/Zitadel all work — or use API-key mode with no IdP at all)
 
-### 8.2 Quickstart (Docker Compose)
+### Quickstart (Docker Compose)
 
 ```bash
 git clone https://github.com/wisdom-dosoo/portcullis.git
@@ -296,17 +269,17 @@ portcullis bootstrap
 
 The command prints a one-time admin key. Store it securely — it cannot be recovered.
 
-### 8.3 Local Development (without Docker)
+### Local Development (without Docker)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 docker compose -f deploy/docker-compose.yml up -d postgres redis   # infra only
-alembic upgrade head
-uvicorn app.main:app --reload --port 8080
+ alembic upgrade head
+ uvicorn app.main:app --reload --port 8080
 ```
 
-### 8.4 Configuration Reference
+### Configuration Reference
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -325,7 +298,7 @@ uvicorn app.main:app --reload --port 8080
 
 ---
 
-## 9. Registering an Upstream MCP Server
+## Registering an Upstream MCP Server
 
 ```bash
 curl -X POST https://gateway.example.com/v1/servers \
@@ -354,7 +327,7 @@ If `$AGENT_TOKEN`'s subject is not bound to a role that allows `github_create_*`
 
 ---
 
-## 10. API Reference
+## API Reference
 
 ### 10.1 Management REST API
 
@@ -396,7 +369,7 @@ Codes `-32001` through `-32004` sit in the JSON-RPC-reserved server-error range 
 
 ---
 
-## 11. Authentication & Authorization
+## Authentication & Authorization
 
 ### 11.1 OAuth 2.1 (Resource Server mode)
 
@@ -425,11 +398,11 @@ permissions:
     effect: deny        # implicit fallback — nothing is reachable unless explicitly allowed
 ```
 
-Evaluation order: most-specific server match first, then rule `priority`, then default-deny. This is a **default-deny** system by design (see [ADR-005](#21-architecture-decision-records)) — a newly registered server is invisible to every subject until a permission rule explicitly allows it.
+Evaluation order: most-specific server match first, then rule `priority`, then default-deny. This is a **default-deny** system by design — a newly registered server is invisible to every subject until a permission rule explicitly allows it.
 
 ---
 
-## 12. Rate Limiting
+## Rate Limiting
 
 Rate limiting runs as a single atomic Redis Lua script per request (read-check-increment in one round trip, avoiding the classic read-then-write race under concurrency). Two strategies are supported:
 
@@ -440,20 +413,23 @@ Policies resolve most-specific-first: `(subject, server, tool)` → `(subject, s
 
 ---
 
-## 13. Observability
+## Observability
 
 ### 13.1 Tracing
+
 Every proxied call opens an OpenTelemetry span (`mcp.tools.call`, `mcp.tools.list`, …) tagged with `subject_id`, `server_slug`, `tool_name`, and outcome, propagated across the gateway → upstream hop so a single trace shows the full path in Jaeger/Tempo/Honeycomb.
 
 ### 13.2 Metrics
+
 `/metrics` exposes Prometheus counters/histograms: `portcullis_requests_total{server,tool,status}`, `portcullis_request_duration_seconds{server,tool}`, `portcullis_rate_limit_rejections_total{subject,server}`, `portcullis_upstream_health{server}`.
 
 ### 13.3 Audit Logging
-Every decision — allowed or denied — is written asynchronously to the Postgres `audit_log` table (see [§14](#14-database-schema)), independent of tracing, so audit history survives even if the tracing backend is down or unconfigured.
+
+Every decision — allowed or denied — is written asynchronously to the Postgres `audit_log` table, independent of tracing, so audit history survives even if the tracing backend is down or unconfigured.
 
 ---
 
-## 14. Database Schema
+## Database Schema
 
 ```sql
 CREATE TABLE tenants (
@@ -541,19 +517,19 @@ CREATE INDEX idx_audit_log_tenant_created ON audit_log (tenant_id, created_at DE
 
 ---
 
-## 15. Security Considerations
+## Security Considerations
 
 - **Default-deny RBAC** everywhere — a new server or role starts with zero effective permissions.
 - **Origin validation + loopback binding in development**, per MCP transport security guidance, to mitigate DNS rebinding against local instances.
 - **API keys are hashed with argon2id**; plaintext is shown exactly once and is not recoverable.
 - **No internal error detail leaks to clients** — stack traces and upstream error bodies are logged server-side (via structlog) and mapped to the generic `-32603`/`-32004` codes at the boundary.
 - **Secrets never in code** — `service_token_secret`, `API_KEY_PEPPER`, and JWKS URLs are environment-injected; `.env` is git-ignored, `.env.example` documents shape only.
-- **Dependency and image scanning** run in CI (`pip-audit`, `gitleaks`, `trivy`) — see [§17](#17-cicd-pipeline).
+- **Dependency and image scanning** run in CI (`pip-audit`, `gitleaks`, `trivy`) — see §17.
 - **Tool annotations are hints, not security boundaries** — Portcullis never relies on an upstream-declared `readOnlyHint`/`destructiveHint` for enforcement; RBAC is the only enforcement layer.
 
 ---
 
-## 16. Testing Strategy
+## Testing Strategy
 
 | Layer | Tooling | What it covers |
 |---|---|---|
@@ -561,19 +537,19 @@ CREATE INDEX idx_audit_log_tenant_created ON audit_log (tenant_id, created_at DE
 | Property-based | Hypothesis | Rate limiter correctness under randomized concurrent request sequences — proves no over-admission regardless of timing |
 | Integration | testcontainers-python (real Postgres + Redis) + a throwaway FastMCP mock upstream | Full proxy flow: auth → RBAC → rate limit → forward → audit write, exercised end-to-end |
 | Contract | Custom JSON-RPC schema assertions | Every gateway-originated error response is valid JSON-RPC 2.0 with a code in the documented table |
-| Load | Locust (local, on demand — not part of CI) | Confirms rate limiter holds under N concurrent subjects; informs the SLOs in [§19](#19-design-targets-slos) |
+| Load | Locust (local, on demand — not part of CI) | Confirms rate limiter holds under N concurrent subjects; informs the SLOs in §19 |
 
 **Target: ≥80% line coverage on `app/`, enforced in CI via `--cov-fail-under=80`.** Coverage on `auth/` and `limits/` (the two components where a bug is a security bug) is held to a stricter 90% internally even though CI only gates the repo-wide number.
 
 ---
 
-## 17. CI/CD Pipeline
+## CI/CD Pipeline
 
 ```yaml
-# .github/workflows/ci.yml
 name: CI
 on:
-  push: { branches: [main] }
+  push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -633,7 +609,7 @@ jobs:
 
 ---
 
-## 18. Deployment
+## Deployment
 
 ### 18.1 Docker / Self-Hosted
 
@@ -671,7 +647,7 @@ Cloudflare proxies the public hostname for TLS termination, DDoS mitigation, and
 
 ---
 
-## 19. Design Targets (SLOs)
+## Design Targets (SLOs)
 
 These are **targets to validate with load testing once implemented**, not measured production numbers — stated here so "done" has a concrete definition:
 
@@ -685,7 +661,7 @@ These are **targets to validate with load testing once implemented**, not measur
 
 ---
 
-## 20. Roadmap
+## Roadmap
 
 - [ ] v0.1 — Registry, proxy, API-key auth, RBAC, Redis rate limiting (MVP)
 - [ ] v0.2 — OAuth 2.1/JWKS auth, OpenTelemetry tracing, Prometheus metrics
@@ -696,7 +672,7 @@ These are **targets to validate with load testing once implemented**, not measur
 
 ---
 
-## 21. Architecture Decision Records
+## Architecture Decision Records
 
 | # | Decision | Alternatives considered | Rationale |
 |---|---|---|---|
@@ -710,7 +686,7 @@ These are **targets to validate with load testing once implemented**, not measur
 
 ---
 
-## 22. Glossary
+## Glossary
 
 - **MCP (Model Context Protocol)** — an open protocol standardizing how AI applications provide context (tools, resources, prompts) to LLMs.
 - **Tool** — an executable capability an MCP server exposes (e.g., `github_create_issue`).
@@ -721,16 +697,14 @@ These are **targets to validate with load testing once implemented**, not measur
 
 ---
 
-## 23. Contributing
+## Contributing
 
 See `CONTRIBUTING.md` for the full workflow. In short: fork → feature branch → `ruff check . && mypy app && pytest` passing locally → PR against `main` → CI must pass (lint, test, security) before merge. Good-first-issue candidates: additional rate-limit strategies, a Helm chart, an admin UI, and a stdio-bridge adapter — see the [Roadmap](#20-roadmap) and open issues labeled `good first issue`.
 
 ---
 
-## 24. License
+## License
 
 Apache License 2.0 — see `LICENSE`.
 
-Product, licensing, and monetization strategy (including why every feature is
-open and how Portcullis Cloud is positioned): see `docs/strategy.md`.
-Governance and contribution: see `GOVERNANCE.md`.
+Product, licensing, and monetization strategy (including why every feature is open and how Portcullis Cloud is positioned): see `docs/strategy.md`. Governance and contribution: see `GOVERNANCE.md`.
