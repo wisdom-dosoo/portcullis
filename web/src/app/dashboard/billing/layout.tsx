@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { CreditCard, BarChart2 } from "lucide-react";
 
 const TABS = [
-  { href: "/dashboard/billing/usage",        label: "Usage",        icon: BarChart2  },
-  { href: "/dashboard/billing/subscription", label: "Subscription", icon: CreditCard },
+  { href: "/dashboard/billing/usage",        label: "Usage",        icon: BarChart2,   active: true  },
+  { href: "/dashboard/billing/subscription", label: "Subscription", icon: CreditCard,    disabled: true },
 ];
 
 export default function BillingLayout({ children }: { children: React.ReactNode }) {
@@ -34,8 +34,9 @@ export default function BillingLayout({ children }: { children: React.ReactNode 
           marginBottom: 24,
         }}
       >
-        {TABS.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(href + "/");
+        {TABS.map(({ href, label, icon: Icon, active: tabActive, disabled }) => {
+          const pathname = usePathname();
+          const active = tabActive || (pathname === href || pathname.startsWith(href + "/"));
           return (
             <Link
               key={href}
@@ -46,13 +47,15 @@ export default function BillingLayout({ children }: { children: React.ReactNode 
                 gap: 6,
                 padding: "9px 16px",
                 fontSize: 13,
-                fontWeight: 600,
+                fontWeight: disabled ? 400 : 600,
                 textDecoration: "none",
-                color: active ? "var(--pc-primary)" : "var(--pc-muted)",
-                borderBottom: `2px solid ${active ? "var(--pc-primary)" : "transparent"}`,
+                color: disabled ? "var(--pc-border)" : (active ? "var(--pc-primary)" : "var(--pc-muted)"),
+                borderBottom: "2px solid " + (disabled ? "transparent" : (active ? "var(--pc-primary)" : "transparent")),
                 marginBottom: -1,
                 transition: "color 0.15s, border-color 0.15s",
+                cursor: disabled ? "default" : "pointer",
               }}
+              onClick={(e) => { if (disabled) { e.preventDefault(); } }}
             >
               <Icon size={14} />
               {label}

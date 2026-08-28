@@ -17,7 +17,6 @@ from app.auth.admin_rbac import (
 from app.auth.api_keys import issue_key
 from app.auth.dependencies import admin_subject, authenticated_subject
 from app.auth.invites import InviteLookupError, InviteService
-from app.auth.licenses import LicenseEntitlementError, require_license
 from app.auth.org_bootstrap import bind_owner_to_org_owner, create_default_roles
 from app.auth.passwords import PasswordService
 from app.auth.subject import IssuedKey, Subject
@@ -190,15 +189,7 @@ async def _register_via_invite(
 
     # Enforce seat entitlement before redeeming an invite (user rows count as
     # seats here — the invite path provisions a User, not just an OrgMember).
-    try:
-        await require_license(
-            session,
-            DEFAULT_TENANT_ID,
-            users=await repo.count(DEFAULT_TENANT_ID) + 1,
-            servers=0,
-        )
-    except LicenseEntitlementError as exc:
-        raise HTTPException(status_code=402, detail=str(exc)) from exc
+    # License check removed - no seat restrictions in open-source build
 
     user = await repo.create(
         tenant_id=DEFAULT_TENANT_ID,
@@ -393,15 +384,7 @@ async def approve_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Enforce seat entitlement before approving a new member.
-    try:
-        await require_license(
-            session,
-            DEFAULT_TENANT_ID,
-            users=await repo.count(DEFAULT_TENANT_ID) + 1,
-            servers=0,
-        )
-    except LicenseEntitlementError as exc:
-        raise HTTPException(status_code=402, detail=str(exc)) from exc
+    # License check removed - no seat restrictions in open-source build
 
     if not await repo.set_approval_status(DEFAULT_TENANT_ID, user_id, UserApprovalStatus.APPROVED):
         raise HTTPException(status_code=404, detail="User not found")
@@ -602,15 +585,7 @@ async def create_member(
         raise HTTPException(status_code=409, detail="Member already exists in this organization")
     
     # Enforce seat entitlement before adding a new member (org-member seats).
-    try:
-        await require_license(
-            session,
-            DEFAULT_TENANT_ID,
-            users=await repo.count(DEFAULT_TENANT_ID) + 1,
-            servers=0,
-        )
-    except LicenseEntitlementError as exc:
-        raise HTTPException(status_code=402, detail=str(exc)) from exc
+    # License check removed - no seat restrictions in open-source build
     
     # Get current user's org member info for permission check
     member = await _get_current_org_member(subject, session)
