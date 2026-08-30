@@ -50,14 +50,18 @@ def main() -> None:
         choices=[p.value for p in LicensePlan],
         help="License plan (default: pro)",
     )
-    provision_parser.add_argument("--licensee", default=None, help="Licensee name (defaults to tenant name)")
-    provision_parser.add_argument("--seat-limit", type=int, default=5, help="License seat limit")
-    provision_parser.add_argument("--server-limit", type=int, default=None, help="License server limit")
-    provision_parser.add_argument("--expires-in-days", type=int, default=365, help="License term in days")
-
-    telemetry_parser = subparsers.add_parser(
-        "telemetry", help="Self-host telemetry status"
+    provision_parser.add_argument(
+        "--licensee", default=None, help="Licensee name (defaults to tenant name)"
     )
+    provision_parser.add_argument("--seat-limit", type=int, default=5, help="License seat limit")
+    provision_parser.add_argument(
+        "--server-limit", type=int, default=None, help="License server limit"
+    )
+    provision_parser.add_argument(
+        "--expires-in-days", type=int, default=365, help="License term in days"
+    )
+
+    telemetry_parser = subparsers.add_parser("telemetry", help="Self-host telemetry status")
     telemetry_subparsers = telemetry_parser.add_subparsers(dest="telemetry_command")
     telemetry_subparsers.add_parser(
         "status", help="Show whether telemetry is enabled and this install's anonymous id"

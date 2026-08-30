@@ -103,38 +103,42 @@ def _export_csv(logs: list) -> StreamingResponse:
     writer = csv.writer(output)
 
     # Write header
-    writer.writerow([
-        "id",
-        "tenant_id",
-        "subject_id",
-        "subject_type",
-        "event_type",
-        "server_slug",
-        "tool_name",
-        "rpc_method",
-        "outcome",
-        "client_ip",
-        "request_id",
-        "detail",
-        "created_at",
-    ])
+    writer.writerow(
+        [
+            "id",
+            "tenant_id",
+            "subject_id",
+            "subject_type",
+            "event_type",
+            "server_slug",
+            "tool_name",
+            "rpc_method",
+            "outcome",
+            "client_ip",
+            "request_id",
+            "detail",
+            "created_at",
+        ]
+    )
 
     for log in logs:
-        writer.writerow([
-            str(log.id),
-            str(log.tenant_id) if log.tenant_id else "",
-            log.subject_id or "",
-            log.subject_type.value if log.subject_type else "",
-            log.event_type.value if log.event_type else "",
-            log.server_slug or "",
-            log.tool_name or "",
-            log.rpc_method or "",
-            log.outcome,
-            log.client_ip or "",
-            log.request_id or "",
-            str(log.detail) if log.detail else "",
-            log.created_at.isoformat() if log.created_at else "",
-        ])
+        writer.writerow(
+            [
+                str(log.id),
+                str(log.tenant_id) if log.tenant_id else "",
+                log.subject_id or "",
+                log.subject_type.value if log.subject_type else "",
+                log.event_type.value if log.event_type else "",
+                log.server_slug or "",
+                log.tool_name or "",
+                log.rpc_method or "",
+                log.outcome,
+                log.client_ip or "",
+                log.request_id or "",
+                str(log.detail) if log.detail else "",
+                log.created_at.isoformat() if log.created_at else "",
+            ]
+        )
 
     output.seek(0)
     filename = f"audit_logs_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
@@ -151,21 +155,26 @@ def _export_jsonl(logs: list) -> StreamingResponse:
 
     def generate():
         for log in logs:
-            yield json.dumps({
-                "id": str(log.id),
-                "tenant_id": str(log.tenant_id) if log.tenant_id else None,
-                "subject_id": log.subject_id,
-                "subject_type": log.subject_type.value if log.subject_type else None,
-                "event_type": log.event_type.value if log.event_type else None,
-                "server_slug": log.server_slug,
-                "tool_name": log.tool_name,
-                "rpc_method": log.rpc_method,
-                "outcome": log.outcome,
-                "client_ip": log.client_ip,
-                "request_id": log.request_id,
-                "detail": log.detail,
-                "created_at": log.created_at.isoformat() if log.created_at else None,
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "id": str(log.id),
+                        "tenant_id": str(log.tenant_id) if log.tenant_id else None,
+                        "subject_id": log.subject_id,
+                        "subject_type": log.subject_type.value if log.subject_type else None,
+                        "event_type": log.event_type.value if log.event_type else None,
+                        "server_slug": log.server_slug,
+                        "tool_name": log.tool_name,
+                        "rpc_method": log.rpc_method,
+                        "outcome": log.outcome,
+                        "client_ip": log.client_ip,
+                        "request_id": log.request_id,
+                        "detail": log.detail,
+                        "created_at": log.created_at.isoformat() if log.created_at else None,
+                    }
+                )
+                + "\n"
+            )
 
     filename = f"audit_logs_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.jsonl"
     return StreamingResponse(

@@ -11,7 +11,7 @@ from app.api.dependencies import get_session, get_settings_dep
 from app.auth.dependencies import admin_subject, authenticated_subject
 from app.auth.subject import Subject
 from app.config import Settings
-from app.gateway.registry import DEFAULT_TENANT_ID, RegistryService, SlugConflictError
+from app.gateway.registry import RegistryService, SlugConflictError
 from app.models.schemas import ServerCreate, ServerUpdate, ServerView
 from app.repositories.servers import ServerRepository
 
@@ -23,10 +23,10 @@ async def create_server(
     body: ServerCreate,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _subject: Annotated[Subject, Depends(admin_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
 ) -> ServerView:
     """Register a new upstream MCP server. Requires admin scope."""
-    svc = RegistryService(session=session, settings=settings)
+    svc = RegistryService(session=session, settings=settings, tenant_id=subject.tenant_id)
     try:
         return await svc.create(body)
     except SlugConflictError as exc:
@@ -39,10 +39,10 @@ async def create_server(
 async def list_servers(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _subject: Annotated[Subject, Depends(authenticated_subject)],
+    subject: Annotated[Subject, Depends(authenticated_subject)],
 ) -> list[ServerView]:
     """Return all registered MCP servers."""
-    svc = RegistryService(session=session, settings=settings)
+    svc = RegistryService(session=session, settings=settings, tenant_id=subject.tenant_id)
     return await svc.list()
 
 
@@ -51,10 +51,10 @@ async def get_server(
     slug: str,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _subject: Annotated[Subject, Depends(authenticated_subject)],
+    subject: Annotated[Subject, Depends(authenticated_subject)],
 ) -> ServerView:
     """Return a single MCP server by slug."""
-    svc = RegistryService(session=session, settings=settings)
+    svc = RegistryService(session=session, settings=settings, tenant_id=subject.tenant_id)
     try:
         return await svc.get(slug)
     except KeyError as exc:
@@ -67,10 +67,10 @@ async def update_server(
     body: ServerUpdate,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _subject: Annotated[Subject, Depends(admin_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
 ) -> ServerView:
     """Update an existing MCP server registration. Requires admin scope."""
-    svc = RegistryService(session=session, settings=settings)
+    svc = RegistryService(session=session, settings=settings, tenant_id=subject.tenant_id)
     try:
         return await svc.update(slug, body)
     except KeyError as exc:
@@ -86,10 +86,10 @@ async def delete_server(
     slug: str,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _subject: Annotated[Subject, Depends(admin_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
 ) -> Response:
     """Delete an MCP server registration. Requires admin scope."""
-    svc = RegistryService(session=session, settings=settings)
+    svc = RegistryService(session=session, settings=settings, tenant_id=subject.tenant_id)
     try:
         await svc.delete(slug)
     except KeyError as exc:
@@ -103,12 +103,12 @@ async def trigger_health_probe(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _subject: Annotated[Subject, Depends(authenticated_subject)],
+    subject: Annotated[Subject, Depends(authenticated_subject)],
 ) -> dict[str, str]:
     """Trigger an immediate health probe for the specified server."""
     # Fetch the ORM object to pass to the monitor
     repo = ServerRepository(session)
-    server = await repo.get_by_slug(DEFAULT_TENANT_ID, slug)
+    server = await repo.get_by_slug(subject.tenant_id, slug)
     if server is None:
         raise HTTPException(status_code=404, detail=f"Server '{slug}' not found")
 

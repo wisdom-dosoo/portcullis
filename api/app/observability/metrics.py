@@ -89,6 +89,7 @@ LICENSE_EXPIRES_AT_TIMESTAMP = Gauge(
     ["tenant_id"],
 )
 
+
 def metrics_response() -> tuple[bytes, str]:
     """Return ``(body_bytes, content_type)`` ready for a ``/metrics`` response."""
     return generate_latest(), CONTENT_TYPE_LATEST

@@ -395,9 +395,7 @@ class Team(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
         lazy="selectin",
     )
 
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "name", name="uq_teams_tenant_name"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_teams_tenant_name"),)
 
 
 class TeamServer(CreatedAtMixin, Base):
@@ -418,9 +416,7 @@ class TeamServer(CreatedAtMixin, Base):
         primary_key=True,
     )
 
-    __table_args__ = (
-        PrimaryKeyConstraint("team_id", "server_id", name="pk_team_servers"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("team_id", "server_id", name="pk_team_servers"),)
 
 
 class OrgMember(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -647,6 +643,9 @@ class AuditLog(UuidPrimaryKeyMixin, CreatedAtMixin, Base):
     outcome: Mapped[str] = mapped_column(String(50), nullable=False)
     client_ip: Mapped[str | None] = mapped_column(String(100))
     request_id: Mapped[str | None] = mapped_column(String(100))
+    # Tamper-evident hash chain (Gap 5): each entry links to previous via prev_hash
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    entry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # Catch-all structured blob for event-specific extra context.
     detail: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
@@ -797,9 +796,7 @@ class Instance(UuidPrimaryKeyMixin, Base):
     """
 
     __tablename__ = "instances"
-    __table_args__ = (
-        UniqueConstraint("install_id", name="uq_instances_install_id"),
-    )
+    __table_args__ = (UniqueConstraint("install_id", name="uq_instances_install_id"),)
 
     install_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
     # Reported payload: version string + number of registered MCP servers.

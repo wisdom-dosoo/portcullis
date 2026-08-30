@@ -225,6 +225,4 @@ async def require_license(
     if license.seat_limit is not None and users > license.seat_limit:
         raise LicenseEntitlementError(f"seat limit exceeded ({users} > {license.seat_limit})")
     if license.server_limit is not None and servers > license.server_limit:
-        raise LicenseEntitlementError(
-            f"server limit exceeded ({servers} > {license.server_limit})"
-        )
+        raise LicenseEntitlementError(f"server limit exceeded ({servers} > {license.server_limit})")

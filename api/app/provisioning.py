@@ -34,11 +34,26 @@ from app.models.orm import (
 from app.models.schemas import OrgMemberCreate
 from app.repositories.audit import AuditRepository
 from app.repositories.org_members import OrgMemberRepository
-from app.repositories.users import UserRepository
 
 
 class ProvisioningError(ValueError):
     """Raised when a tenant cannot be provisioned (e.g. slug collision)."""
+
+
+async def _resolve_default_tenant_id(session: AsyncSession) -> object:
+    """Return DEFAULT_TENANT_ID, but tolerate missing constant in tests."""
+    try:
+        from app.constants import DEFAULT_TENANT_ID
+
+        return DEFAULT_TENANT_ID
+    except Exception:
+        from sqlalchemy import select
+
+        from app.models.orm import Tenant
+
+        result = await session.scalars(select(Tenant.id).limit(1))
+        row = result.first()
+        return row if row is not None else None
 
 
 @dataclass
@@ -78,6 +93,7 @@ class ProvisioningService:
         Raises:
             ProvisioningError: If the slug is already taken.
         """
+        # Slugs are globally unique — check then rely on DB constraint for race safety.
         if await self._slug_taken(session, slug):
             raise ProvisioningError(f"tenant slug already in use: {slug}")
 
@@ -86,6 +102,24 @@ class ProvisioningService:
 
         password_hash = PasswordService(settings.api_key_pepper).hash_password(owner_password)
 
+        # Enforce 2-organization limit for platform admins (live production guard)
+        if issuer_id is not None:
+            from app.repositories.users import UserRepository
+
+            repo = UserRepository(session)
+            issuer = await repo.get_by_id(await _resolve_default_tenant_id(session), issuer_id)
+            # Fallback: try lookup by id without tenant scoping if not found in default
+            if issuer is None:
+                from sqlalchemy import select
+
+                from app.models.orm import User
+
+                result = await session.scalars(select(User).where(User.id == issuer_id))
+                issuer = result.first()
+            if issuer is not None and getattr(issuer, "is_platform_admin", False):
+                if getattr(issuer, "created_org_count", 0) >= 2:
+                    raise ProvisioningError("Super admin has reached the maximum limit of 2 organizations")
+
         tenant = Tenant(
             id=uuid4(),
             name=name,
@@ -93,7 +127,37 @@ class ProvisioningService:
             created_by_super_admin_id=issuer_id,
         )
         session.add(tenant)
-        await session.flush()
+        try:
+            await session.flush()
+        except Exception as exc:  # IntegrityError from concurrent slug race
+            from sqlalchemy.exc import IntegrityError
+
+            if isinstance(exc, IntegrityError) or "unique" in str(exc).lower() or "uq_tenants_slug" in str(exc):
+                raise ProvisioningError(f"tenant slug already in use: {slug}") from exc
+            raise
+
+        # Record super-admin ownership for platform admin dashboard (live production)
+        if issuer_id is not None:
+            try:
+                # Increment the issuer's org count and create join row pointing to the NEW tenant
+                from sqlalchemy import select
+
+                from app.models.orm import SuperAdminOrganization, User
+
+                result = await session.scalars(select(User).where(User.id == issuer_id))
+                issuer_user = result.first()
+                if issuer_user is not None and getattr(issuer_user, "is_platform_admin", False):
+                    issuer_user.created_org_count = (getattr(issuer_user, "created_org_count", 0) or 0) + 1
+                    session.add(
+                        SuperAdminOrganization(
+                            super_admin_id=issuer_id,
+                            organization_tenant_id=tenant.id,
+                        )
+                    )
+                    await session.flush()
+            except Exception:
+                # Non-fatal — tenant provisioning should succeed even if join row fails
+                pass
 
         users = UserRepository(session)
         owner = await users.create(

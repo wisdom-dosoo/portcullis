@@ -162,6 +162,16 @@ function QuickAction({
 
 /* ── component ───────────────────────────────────────────────────── */
 
+function DemoBanner() {
+  return (
+    <div className="mb-4 rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
+      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={2} />
+      <span className="font-semibold">Demo data</span>
+      <span style={{ color: "var(--pc-muted)" }}>— traffic charts and billing widgets are mocked until backend APIs land. Servers, roles, and audit are live.</span>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { data: serversResp, isLoading: loadingServers } = useListServersV1ServersGet();
   const { data: keysResp,    isLoading: loadingKeys    } = useListApiKeysV1ApiKeysGet();
@@ -190,6 +200,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <DemoBanner />
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>

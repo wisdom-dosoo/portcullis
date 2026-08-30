@@ -17,6 +17,7 @@ from app.auth.admin_rbac import (
 from app.auth.api_keys import issue_key
 from app.auth.dependencies import admin_subject, authenticated_subject
 from app.auth.invites import InviteLookupError, InviteService
+from app.auth.licenses import LicenseEntitlementError, require_license
 from app.auth.org_bootstrap import bind_owner_to_org_owner, create_default_roles
 from app.auth.passwords import PasswordService
 from app.auth.subject import IssuedKey, Subject
@@ -114,7 +115,7 @@ async def register(
             if existing_user.created_org_count >= 2:
                 raise HTTPException(
                     status_code=403,
-                    detail="Super admin has reached the maximum limit of 2 organizations"
+                    detail="Super admin has reached the maximum limit of 2 organizations",
                 )
 
     # For org creation (flow=create), assign org_owner role and set up default roles
@@ -134,16 +135,19 @@ async def register(
     # For org creation, set up default roles and track super admin org ownership
     if body.flow == "create":
         await create_default_roles(session, DEFAULT_TENANT_ID)
-        
+
         # If the user is a super admin, increment their org count and link them to the new org
         if user.is_platform_admin:
             user.created_org_count += 1
             # Link super admin to the new organization
             from app.models.orm import SuperAdminOrganization
-            session.add(SuperAdminOrganization(
-                super_admin_id=user.id,
-                organization_tenant_id=DEFAULT_TENANT_ID,
-            ))
+
+            session.add(
+                SuperAdminOrganization(
+                    super_admin_id=user.id,
+                    organization_tenant_id=DEFAULT_TENANT_ID,
+                )
+            )
 
     if approval is UserApprovalStatus.PENDING:
         # No token until an admin approves the join request.
@@ -284,6 +288,7 @@ async def _get_current_org_member(subject: Subject, session: AsyncSession) -> Or
     """Get the current user's org member info from the session."""
     if subject.subject_type == SubjectType.API_KEY:
         from app.repositories.api_keys import ApiKeyRepository
+
         keys = ApiKeyRepository(session)
         api_key = await keys.get_by_id(UUID(subject.subject_id), DEFAULT_TENANT_ID)
         if api_key and api_key.user_id:
@@ -291,9 +296,7 @@ async def _get_current_org_member(subject: Subject, session: AsyncSession) -> Or
                 DEFAULT_TENANT_ID, str(api_key.user_id)
             )
     # For OAuth subjects, look up by user_subject
-    return await OrgMemberRepository(session).get_by_subject(
-        DEFAULT_TENANT_ID, subject.subject_id
-    )
+    return await OrgMemberRepository(session).get_by_subject(DEFAULT_TENANT_ID, subject.subject_id)
 
 
 async def _team_view(repo: TeamRepository, team) -> TeamView:
@@ -413,6 +416,7 @@ async def reject_user(
 # Teams API
 # =========================================================================
 
+
 @router.post("/teams", status_code=201, response_model=TeamView)
 async def create_team(
     body: TeamCreate,
@@ -424,8 +428,10 @@ async def create_team(
     org_member_repo = OrgMemberRepository(session)
     # Get the current user's org member info
     from app.auth.subject import SubjectType
+
     if subject.subject_type == SubjectType.API_KEY:
         from app.repositories.api_keys import ApiKeyRepository
+
         keys = ApiKeyRepository(session)
         api_key = await keys.get_by_id(UUID(subject.subject_id), DEFAULT_TENANT_ID)
         if api_key and api_key.user_id:
@@ -436,12 +442,12 @@ async def create_team(
         member = await OrgMemberRepository(session).get_by_subject(
             DEFAULT_TENANT_ID, subject.subject_id
         )
-    
+
     if member:
         perm_decision = has_permission(member, AdminAction.CREATE_TEAM)
         if not perm_decision.allowed:
             raise HTTPException(status_code=403, detail=perm_decision.reason)
-    
+
     repo = TeamRepository(session)
     team = await repo.create(DEFAULT_TENANT_ID, body)
     await session.commit()
@@ -519,23 +525,27 @@ async def add_server_to_team(
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
     from app.repositories.servers import ServerRepository
+
     server_repo = ServerRepository(session)
     # Actually need to get by ID
     from sqlalchemy import select
 
     from app.models.orm import McpServer
-    result = await session.scalars(select(McpServer).where(McpServer.id == server_id, McpServer.tenant_id == DEFAULT_TENANT_ID))
+
+    result = await session.scalars(
+        select(McpServer).where(McpServer.id == server_id, McpServer.tenant_id == DEFAULT_TENANT_ID)
+    )
     server = result.first()
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
-    
+
     # Check if user has permission to assign servers to this team
     member = await _get_current_org_member(subject, session)
     if member:
         can_access = can_access_team_scope(member, team_id)
         if not can_access:
             raise HTTPException(status_code=403, detail="Cannot assign servers to this team")
-    
+
     await repo.add_server(team_id, server_id)
     await session.commit()
 
@@ -552,14 +562,14 @@ async def remove_server_from_team(
     team = await repo.get(DEFAULT_TENANT_ID, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
-    
+
     # Check team scope access
     member = await _get_current_org_member(subject, session)
     if member:
         can_access = can_access_team_scope(member, team_id)
         if not can_access:
             raise HTTPException(status_code=403, detail="Cannot access this team")
-    
+
     removed = await repo.remove_server(team_id, server_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Server not in team")
@@ -570,6 +580,7 @@ async def remove_server_from_team(
 # Org Members API
 # =========================================================================
 
+
 @router.post("/members", status_code=201, response_model=OrgMemberView)
 async def create_member(
     body: OrgMemberCreate,
@@ -578,22 +589,22 @@ async def create_member(
 ) -> OrgMemberView:
     """Invite/add a new org member (admin only)."""
     repo = OrgMemberRepository(session)
-    
+
     # Check if user already exists in this org
     existing = await repo.get_by_subject(DEFAULT_TENANT_ID, body.user_subject)
     if existing is not None:
         raise HTTPException(status_code=409, detail="Member already exists in this organization")
-    
+
     # Enforce seat entitlement before adding a new member (org-member seats).
     # License check removed - no seat restrictions in open-source build
-    
+
     # Get current user's org member info for permission check
     member = await _get_current_org_member(subject, session)
     if member:
         perm_decision = can_invite_role(member, body.admin_role)
         if not perm_decision:
             raise HTTPException(status_code=403, detail=f"Cannot invite role {body.admin_role}")
-    
+
     member = await repo.create(DEFAULT_TENANT_ID, body)
     await session.commit()
     return OrgMemberView.model_validate(member)
@@ -636,7 +647,7 @@ async def update_member(
     member = await repo.get(DEFAULT_TENANT_ID, member_id)
     if member is None:
         raise HTTPException(status_code=404, detail="Member not found")
-    
+
     # TODO: Add permission checks - can current user manage this member?
     member = await repo.update(member, body)
     await session.commit()

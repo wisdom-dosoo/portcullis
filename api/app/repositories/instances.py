@@ -31,9 +31,7 @@ class InstanceRepository:
         seen_at: datetime | None = None,
     ) -> Instance:
         """Record a heartbeat from the given install, creating or updating."""
-        row = await self._session.scalar(
-            select(Instance).where(Instance.install_id == install_id)
-        )
+        row = await self._session.scalar(select(Instance).where(Instance.install_id == install_id))
         now = seen_at or datetime.now(UTC)
         if row is None:
             row = Instance(
@@ -69,9 +67,7 @@ class InstanceRepository:
         total = await self._session.scalar(select(func.count()).select_from(Instance))
         cutoff = datetime.now(UTC) - timedelta(hours=24)
         active = await self._session.scalar(
-            select(func.count())
-            .select_from(Instance)
-            .where(Instance.last_seen_at >= cutoff)
+            select(func.count()).select_from(Instance).where(Instance.last_seen_at >= cutoff)
         )
         return {"total": int(total or 0), "active_24h": int(active or 0)}
 

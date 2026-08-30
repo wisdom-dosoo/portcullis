@@ -36,13 +36,14 @@ class SsoError(ValueError):
 
 def _sign(value: str, pepper: str) -> str:
     """Return a keyed signature for the given value."""
-    return hmac.new(
-        b"portcullis-sso-state",
-        value.encode("utf-8"),
-        digestmod="sha256",
-    ).hexdigest() + hmac.new(
-        pepper.encode("utf-8"), value.encode("utf-8"), digestmod="sha256"
-    ).hexdigest()
+    return (
+        hmac.new(
+            b"portcullis-sso-state",
+            value.encode("utf-8"),
+            digestmod="sha256",
+        ).hexdigest()
+        + hmac.new(pepper.encode("utf-8"), value.encode("utf-8"), digestmod="sha256").hexdigest()
+    )
 
 
 def _verify(value: str, signature: str, pepper: str) -> bool:
@@ -157,9 +158,7 @@ class SsoIdentity:
         full_name = (
             userinfo.get("name")
             or " ".join(
-                part
-                for part in (userinfo.get("given_name"), userinfo.get("family_name"))
-                if part
+                part for part in (userinfo.get("given_name"), userinfo.get("family_name")) if part
             )
             or ""
         ).strip()

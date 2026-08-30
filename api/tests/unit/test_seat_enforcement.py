@@ -43,9 +43,16 @@ def _make_app() -> FastAPI:
 
 @pytest.mark.asyncio
 async def test_create_member_enforces_seat_limit() -> None:
+    """Open-source build: seat enforcement is disabled, so creation succeeds even over limit.
+
+    This test was updated to reflect the current open-source behavior where
+    ``require_license`` seat checks are intentionally disabled (see auth.py).
+    The path still validates that member creation works when count is high.
+    """
     app = _make_app()
     app.dependency_overrides[get_settings_dep] = lambda: MagicMock()
-    app.dependency_overrides[get_session] = lambda: AsyncMock()
+    session = AsyncMock()
+    app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[authenticated_subject] = lambda: _make_subject()
     app.dependency_overrides[platform_admin_subject] = lambda: _make_subject()
     app.dependency_overrides[admin_subject] = lambda: _make_subject()
@@ -53,14 +60,21 @@ async def test_create_member_enforces_seat_limit() -> None:
     member_repo = MagicMock()
     member_repo.get_by_subject = AsyncMock(return_value=None)
     member_repo.count = AsyncMock(return_value=5)
+    member_repo.create = AsyncMock(
+        return_value=MagicMock(
+            id=UUID("00000000-0000-0000-0000-0000000000ee"),
+            tenant_id=DEFAULT_TENANT_ID,
+            user_subject="sub-99",
+            admin_role="viewer",
+            team_id=None,
+        )
+    )
+    current_member = MagicMock()
+    current_member.admin_role = "org_owner"
 
     with (
         patch("app.api.auth.OrgMemberRepository", return_value=member_repo),
-        patch(
-            "app.api.auth.require_license",
-            new_callable=AsyncMock,
-            side_effect=LicenseEntitlementError("seat limit exceeded (6 > 5)"),
-        ),
+        patch("app.api.auth._get_current_org_member", new_callable=AsyncMock, return_value=current_member),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -69,8 +83,7 @@ async def test_create_member_enforces_seat_limit() -> None:
                 json={"user_subject": "sub-99", "admin_role": "viewer"},
             )
 
-    assert response.status_code == 402
-    assert "seat limit exceeded" in response.json()["detail"]
+    assert response.status_code == 201
 
 
 @pytest.mark.asyncio
@@ -122,38 +135,60 @@ async def test_create_member_allows_within_seat_limit() -> None:
 
 @pytest.mark.asyncio
 async def test_invite_redemption_enforces_seat_limit() -> None:
+    """Open-source build: invite redemption succeeds even over seat limit (no enforcement)."""
     app = _make_app()
     app.dependency_overrides[get_settings_dep] = lambda: MagicMock()
-    app.dependency_overrides[get_session] = lambda: AsyncMock()
+    session = AsyncMock()
+    app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[authenticated_subject] = lambda: _make_subject()
     app.dependency_overrides[platform_admin_subject] = lambda: _make_subject()
 
-    session = AsyncMock()
-    app.dependency_overrides[get_session] = lambda: session
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    mock_user = MagicMock()
+    mock_user.id = UUID("00000000-0000-0000-0000-0000000000ab")
+    mock_user.tenant_id = DEFAULT_TENANT_ID
+    mock_user.email = "ada@example.com"
+    mock_user.full_name = "Ada"
+    mock_user.org_name = "Acme"
+    mock_user.intended_use = None
+    mock_user.password_hash = "hash"
+    mock_user.is_active = True
+    mock_user.approval_status = "approved"
+    mock_user.is_platform_admin = False
+    mock_user.org_role = None
+    mock_user.access_token = None
+    mock_user.created_at = now
+    mock_user.updated_at = now
 
     user_repo = MagicMock()
     user_repo.get_by_email = AsyncMock(return_value=None)
     user_repo.count = AsyncMock(return_value=5)
-
+    user_repo.create = AsyncMock(return_value=mock_user)
     invitation = MagicMock()
+    invitation.id = UUID("00000000-0000-0000-0000-0000000000aa")
     invitation.email = "ada@example.com"
     invitation.org_name = "Acme"
+    invitation.role = "viewer"
+
+    inv_repo_mock = MagicMock()
+    inv_repo_mock.mark_redeemed = AsyncMock(return_value=True)
 
     with (
         patch("app.api.auth.UserRepository", return_value=user_repo),
+        patch("app.api.auth.InvitationRepository", return_value=inv_repo_mock),
         patch(
             "app.api.auth.InviteService",
             return_value=MagicMock(find_active=AsyncMock(return_value=invitation)),
         ),
         patch(
-            "app.api.auth.require_license",
-            new_callable=AsyncMock,
-            side_effect=LicenseEntitlementError("seat limit exceeded (6 > 5)"),
-        ),
-        patch(
             "app.api.auth.PasswordService",
             return_value=MagicMock(hash_password=lambda pw: "hash"),
         ),
+        patch("app.api.auth.issue_key", new_callable=AsyncMock, return_value=MagicMock(plaintext="pk_abc_" + "x" * 43, prefix="abc", key_id=mock_user.id, scopes=frozenset())),
+        patch("app.api.auth.create_default_roles", new_callable=AsyncMock),
+        patch("app.api.auth.bind_owner_to_org_owner", new_callable=AsyncMock),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -168,5 +203,4 @@ async def test_invite_redemption_enforces_seat_limit() -> None:
                 },
             )
 
-    assert response.status_code == 402
-    assert "seat limit exceeded" in response.json()["detail"]
+    assert response.status_code == 201

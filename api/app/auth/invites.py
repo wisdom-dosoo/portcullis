@@ -59,7 +59,9 @@ class InviteLookupError(ValueError):
     """Raised when an invitation code is unknown or no longer redeemable."""
 
 
-def _invitation_email_html(org_name: str, code: str, role: str, expires_in_days: int | None, base_url: str) -> str:
+def _invitation_email_html(
+    org_name: str, code: str, role: str, expires_in_days: int | None, base_url: str
+) -> str:
     """Generate HTML email for invitation."""
     expires_text = f"expires in {expires_in_days} days" if expires_in_days else "does not expire"
     return f"""
@@ -89,7 +91,9 @@ def _invitation_email_html(org_name: str, code: str, role: str, expires_in_days:
 """
 
 
-def _invitation_email_text(org_name: str, code: str, role: str, expires_in_days: int | None, base_url: str) -> str:
+def _invitation_email_text(
+    org_name: str, code: str, role: str, expires_in_days: int | None, base_url: str
+) -> str:
     """Generate plain text email for invitation."""
     expires_text = f"expires in {expires_in_days} days" if expires_in_days else "does not expire"
     return f"""
@@ -152,8 +156,12 @@ class InviteService:
             try:
                 provider = build_email_provider(settings)
                 base = base_url or settings.sso_public_base_url or "https://portcullis.example.com"
-                html_body = _invitation_email_html(org_name, code, role.value, expires_in_days, base)
-                text_body = _invitation_email_text(org_name, code, role.value, expires_in_days, base)
+                html_body = _invitation_email_html(
+                    org_name, code, role.value, expires_in_days, base
+                )
+                text_body = _invitation_email_text(
+                    org_name, code, role.value, expires_in_days, base
+                )
                 message = EmailMessageData(
                     to=[email],
                     subject=f"Invitation to join {org_name} on Portcullis",

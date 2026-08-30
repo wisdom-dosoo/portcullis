@@ -221,6 +221,19 @@ def create_app() -> FastAPI:
 
     application.include_router(telemetry_router)
 
+    from app.api.licenses import (
+        admin_router as licenses_admin_router,
+    )
+    from app.api.licenses import (
+        org_router as licenses_org_router,
+    )
+    from app.api.licenses import (
+        tenant_license_router as licenses_tenant_router,
+    )
+
+    application.include_router(licenses_admin_router)
+    application.include_router(licenses_org_router)
+    application.include_router(licenses_tenant_router)
 
     from app.gateway.router import router as proxy_router
 

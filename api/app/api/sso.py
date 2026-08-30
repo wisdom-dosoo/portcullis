@@ -204,7 +204,9 @@ async def sso_callback(
         samesite="lax",
         secure=settings.environment.value == "production",
         path="/",
-        domain=state_cookie_domain(settings) if settings.environment.value == "production" else None,
+        domain=state_cookie_domain(settings)
+        if settings.environment.value == "production"
+        else None,
     )
     return redirect
 
@@ -234,7 +236,9 @@ async def sso_logout(
     # Redirect to IdP logout if configured
     if settings.sso_oidc_logout_url:
         post_logout_redirect = f"{settings.sso_public_base_url}/login"
-        logout_url = f"{settings.sso_oidc_logout_url}?post_logout_redirect_uri={post_logout_redirect}"
+        logout_url = (
+            f"{settings.sso_oidc_logout_url}?post_logout_redirect_uri={post_logout_redirect}"
+        )
         return RedirectResponse(logout_url, status_code=302)
 
     # Fallback: redirect to login page

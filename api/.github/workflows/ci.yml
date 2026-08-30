@@ -43,7 +43,13 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install -e ".[dev]"
       - run: alembic upgrade head
-      - run: pytest tests/unit tests/contract -q --cov=app --cov-fail-under=80
+      - run: pytest tests/unit tests/contract -q --cov=app --cov-report=term-missing --cov-fail-under=80
+      # Per-module gates: limits is security-critical and currently 97% — gate 90%.
+      # auth/gateway are lower due to JWT/rotation/org_bootstrap not yet unit-covered
+      # (target 90% after P3). Gates set to current measured floor to prevent regression.
+      - run: pytest tests/unit -q --cov=app.limits --cov-fail-under=90 --cov-report=term-missing
+      - run: pytest tests/unit -q --cov=app.auth --cov-fail-under=60 --cov-report=term-missing
+      - run: pytest tests/unit -q --cov=app.gateway --cov-fail-under=30 --cov-report=term-missing
       - run: pytest tests/integration -q
       - run: pytest tests/e2e -q
 
@@ -55,6 +61,11 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install pip-audit
       - run: pip-audit -r requirements.txt
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "ghcr.io/wisdom-dosoo/portcullis:ci"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
 
   docker:
     needs: [lint, test, security]

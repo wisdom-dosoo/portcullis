@@ -168,7 +168,9 @@ class Settings(BaseSettings):
         """Parse UPSTREAM_ALLOWED_HOSTS into a tuple of strings."""
         if not self.upstream_allowed_hosts:
             return ()
-        return tuple(item.strip() for item in self.upstream_allowed_hosts.split(",") if item.strip())
+        return tuple(
+            item.strip() for item in self.upstream_allowed_hosts.split(",") if item.strip()
+        )
 
     @property
     def mcp_allowed_origins_tuple(self) -> tuple[str, ...]:
@@ -180,10 +182,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_mcp_allowed_origins_in_production(self) -> Self:
         """Require MCP_ALLOWED_ORIGINS to be set in production for DNS rebinding protection."""
-        if (
-            self.environment is Environment.PRODUCTION
-            and not self.mcp_allowed_origins_tuple
-        ):
+        if self.environment is Environment.PRODUCTION and not self.mcp_allowed_origins_tuple:
             raise ValueError(
                 "MCP_ALLOWED_ORIGINS must be set in production to prevent DNS rebinding attacks. "
                 "Set a comma-separated list of allowed origins (e.g., 'https://claude.ai,https://cursor.sh')"
@@ -240,7 +239,9 @@ class Settings(BaseSettings):
             raise ValueError("must be a valid Python log level")
         return normalized
 
-    @field_validator("rate_limit_default", "auth_rate_limit_default", "management_api_rate_limit_default")
+    @field_validator(
+        "rate_limit_default", "auth_rate_limit_default", "management_api_rate_limit_default"
+    )
     @classmethod
     def validate_rate_limit(cls, value: str) -> str:
         """Validate the compact default rate-limit syntax."""

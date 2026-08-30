@@ -32,7 +32,9 @@ def _filter_list_by_permission(
         item
         for item in items
         if name_key in item
-        and evaluate_permission(subject.subject_id, server_slug, item[name_key], permissions).allowed
+        and evaluate_permission(
+            subject.subject_id, server_slug, item[name_key], permissions
+        ).allowed
     ]
 
 

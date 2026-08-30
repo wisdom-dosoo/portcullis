@@ -26,6 +26,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_runtime, get_session
+from app.auth.dependencies import authenticated_subject
+from app.auth.subject import Subject
 from app.models.orm import (
     OrgMember,
     OrgMemberRole,
@@ -40,7 +42,19 @@ from app.repositories.users import UserRepository
 router = APIRouter(prefix="/scim", tags=["scim"])
 
 
+def _resolve_tenant(subject: Subject | None, runtime: object) -> object:
+    """Resolve tenant_id from authenticated subject (preferred) or runtime fallback."""
+    if subject is not None:
+        return subject.tenant_id
+    # Fallback for legacy SCIM clients without gateway auth — keep None so
+    # tenant-scoped queries degrade gracefully rather than leaking across tenants.
+    if hasattr(runtime, "tenant_id"):
+        return runtime.tenant_id  # type: ignore[no-any-return]
+    return None
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
+
 
 def _now_utc() -> datetime:
     return datetime.now(UTC)
@@ -148,18 +162,18 @@ def _extract_group_from_scim(scim_group: dict[str, Any]) -> ScimGroup:
 
 # ── Users endpoints ────────────────────────────────────────────────────────
 
+
 @router.get("/Users", response_model=list[ScimUser], summary="Search Users")
 async def scim_list_users(
     filter: str | None = Query(default=None, description="SCIM filter expression"),
     text: str | None = Query(default=None, description="Search text"),
     sortBy: str | None = Query(default=None, description="Sort by attribute"),
     sortOrder: str | None = Query(default="normal", description="Sort order (normal|reverse)"),
-    request: Request = Depends(get_runtime),
     session: AsyncSession = Depends(get_session),
+    subject: Subject = Depends(authenticated_subject),  # tenant isolation via subject
 ) -> list[ScimUser]:
-    """List users with optional filtering and searching."""
-    runtime = request.app.state.runtime  # type: ignore[attr-defined]
-    tenant_id = runtime.tenant_id if hasattr(runtime, "tenant_id") else None
+    """List users with optional filtering and searching (tenant-scoped)."""
+    tenant_id = subject.tenant_id
 
     repo = OrgMemberRepository(session)
     query = select(OrgMember).join(User).where(User.tenant_id == OrgMember.tenant_id)
@@ -187,7 +201,9 @@ async def scim_list_users(
             name={
                 "familyName": user.full_name or "",
                 "givenName": user.full_name or "",
-            } if user.full_name else None,
+            }
+            if user.full_name
+            else None,
             groups=[],  # Will be populated if we have team info
             schemas=["urn:ietf:params:scim:schemas:core:1.1:User"],
         )
@@ -226,7 +242,9 @@ async def scim_create_user(
             name={
                 "familyName": user.full_name or "",
                 "givenName": user.full_name or "",
-            } if user.full_name else None,
+            }
+            if user.full_name
+            else None,
             schemas=["urn:ietf:params:scim:schemas:core:1.1:User"],
         )
 
@@ -258,7 +276,9 @@ async def scim_create_user(
         name={
             "familyName": new_user.full_name or "",
             "givenName": new_user.full_name or "",
-        } if new_user.full_name else None,
+        }
+        if new_user.full_name
+        else None,
         schemas=["urn:ietf:params:scim:schemas:core:1.1:User"],
     )
 
@@ -282,9 +302,7 @@ async def scim_get_user(
 
     if not om:
         # Try by ID
-        result = await session.scalars(
-            select(OrgMember).where(OrgMember.id == UUID(decoded_id))
-        )
+        result = await session.scalars(select(OrgMember).where(OrgMember.id == UUID(decoded_id)))
         om = result.first()
 
     if not om:
@@ -299,7 +317,9 @@ async def scim_get_user(
         name={
             "familyName": user.full_name or "",
             "givenName": user.full_name or "",
-        } if user.full_name else None,
+        }
+        if user.full_name
+        else None,
         schemas=["urn:ietf:params:scim:schemas:core:1.1:User"],
     )
 
@@ -323,9 +343,7 @@ async def scim_update_user(
 
     if not om:
         # Try by ID
-        result = await session.scalars(
-            select(OrgMember).where(OrgMember.id == UUID(decoded_id))
-        )
+        result = await session.scalars(select(OrgMember).where(OrgMember.id == UUID(decoded_id)))
         om = result.first()
 
     if not om:
@@ -346,12 +364,16 @@ async def scim_update_user(
         name={
             "familyName": user.full_name or "",
             "givenName": user.full_name or "",
-        } if user.full_name else None,
+        }
+        if user.full_name
+        else None,
         schemas=["urn:ietf:params:scim:schemas:core:1.1:User"],
     )
 
 
-@router.delete("/Users/{scim_id}", status_code=http_status.HTTP_204_NO_CONTENT, summary="Delete User")
+@router.delete(
+    "/Users/{scim_id}", status_code=http_status.HTTP_204_NO_CONTENT, summary="Delete User"
+)
 async def scim_delete_user(
     scim_id: str,
     request: Request = Depends(get_runtime),
@@ -369,9 +391,7 @@ async def scim_delete_user(
 
     if not om:
         # Try by ID
-        result = await session.scalars(
-            select(OrgMember).where(OrgMember.id == UUID(decoded_id))
-        )
+        result = await session.scalars(select(OrgMember).where(OrgMember.id == UUID(decoded_id)))
         om = result.first()
 
     if not om:
@@ -387,6 +407,7 @@ async def scim_delete_user(
 
 
 # ── Groups endpoints ───────────────────────────────────────────────────────
+
 
 @router.get("/Groups", response_model=list[ScimGroup], summary="Search Groups")
 async def scim_list_groups(
@@ -507,9 +528,7 @@ async def scim_get_group(
 
     if not om:
         # Try by ID
-        result = await session.scalars(
-            select(OrgMember).where(OrgMember.id == UUID(decoded_id))
-        )
+        result = await session.scalars(select(OrgMember).where(OrgMember.id == UUID(decoded_id)))
         om = result.first()
 
     if not om:
@@ -543,9 +562,7 @@ async def scim_update_group(
 
     if not om:
         # Try by ID
-        result = await session.scalars(
-            select(OrgMember).where(OrgMember.id == UUID(decoded_id))
-        )
+        result = await session.scalars(select(OrgMember).where(OrgMember.id == UUID(decoded_id)))
         om = result.first()
 
     if not om:
@@ -573,7 +590,9 @@ async def scim_update_group(
     )
 
 
-@router.delete("/Groups/{scim_id}", status_code=http_status.HTTP_204_NO_CONTENT, summary="Delete Group")
+@router.delete(
+    "/Groups/{scim_id}", status_code=http_status.HTTP_204_NO_CONTENT, summary="Delete Group"
+)
 async def scim_delete_group(
     scim_id: str,
     request: Request = Depends(get_runtime),
@@ -591,9 +610,7 @@ async def scim_delete_group(
 
     if not om:
         # Try by ID
-        result = await session.scalars(
-            select(OrgMember).where(OrgMember.id == UUID(decoded_id))
-        )
+        result = await session.scalars(select(OrgMember).where(OrgMember.id == UUID(decoded_id)))
         om = result.first()
 
     if not om:

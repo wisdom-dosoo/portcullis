@@ -108,7 +108,9 @@ def resolve_policy(
     Falls back to the default_str (parsed as token_bucket) if no policies match.
     """
     # Filter to only matching policies
-    candidates = [p for p in policies if _policy_matches(p, subject_id, subject_type, server_slug, tool_name)]
+    candidates = [
+        p for p in policies if _policy_matches(p, subject_id, subject_type, server_slug, tool_name)
+    ]
 
     if not candidates:
         request_limit, window_seconds = parse_default(default_str)

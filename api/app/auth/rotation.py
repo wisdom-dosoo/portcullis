@@ -114,7 +114,9 @@ class ApiKeyRotationService:
                 rotated_at=datetime.now(UTC),
             )
 
-    async def revoke_key(self, key_id: UUID, trigger: RotationTrigger = RotationTrigger.MANUAL) -> bool:
+    async def revoke_key(
+        self, key_id: UUID, trigger: RotationTrigger = RotationTrigger.MANUAL
+    ) -> bool:
         """Immediately revoke an API key."""
         async with self._session_factory() as session:
             result = await revoke_key(key_id, trigger=trigger, session=session)
@@ -132,13 +134,15 @@ class ApiKeyRotationService:
 
             for key in expiring_keys:
                 days_left = (key.expires_at - datetime.now(UTC)).days if key.expires_at else None
-                warnings.append({
-                    "key_id": str(key.id),
-                    "key_name": key.name,
-                    "subject_id": str(key.id),  # Would need subject lookup
-                    "days_until_expiry": days_left,
-                    "expires_at": key.expires_at.isoformat() if key.expires_at else None,
-                })
+                warnings.append(
+                    {
+                        "key_id": str(key.id),
+                        "key_name": key.name,
+                        "subject_id": str(key.id),  # Would need subject lookup
+                        "days_until_expiry": days_left,
+                        "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+                    }
+                )
 
         return warnings
 
@@ -153,7 +157,7 @@ class ApiKeyRotationService:
 
             # Sort by creation date, oldest first
             keys.sort(key=lambda k: k.created_at)
-            to_revoke = keys[:len(keys) - self._policy.max_keys_per_subject]
+            to_revoke = keys[: len(keys) - self._policy.max_keys_per_subject]
 
             revoked = 0
             for key in to_revoke:
@@ -207,6 +211,7 @@ class KeyExpiryScheduler:
     async def start(self):
         """Start the scheduler."""
         import asyncio
+
         self._running = True
         while self._running:
             try:

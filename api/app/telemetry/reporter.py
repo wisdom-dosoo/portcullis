@@ -51,9 +51,7 @@ class TelemetryReporter:
         """Send one heartbeat, counting registered servers as we go."""
         async with self._session_factory() as session:
             result = await session.scalar(
-                select(func.count(McpServer.id)).where(
-                    McpServer.tenant_id == DEFAULT_TENANT_ID
-                )
+                select(func.count(McpServer.id)).where(McpServer.tenant_id == DEFAULT_TENANT_ID)
             )
             server_count = int(result or 0)
 

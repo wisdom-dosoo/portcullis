@@ -84,9 +84,11 @@ class ApiKeyRepository:
     async def list_by_subject(self, subject_id: UUID) -> list[ApiKey]:
         """Return all API keys for a subject (by user_id)."""
         result = await self._session.scalars(
-            select(ApiKey).where(
+            select(ApiKey)
+            .where(
                 ApiKey.user_id == subject_id,
-            ).order_by(ApiKey.created_at.desc())
+            )
+            .order_by(ApiKey.created_at.desc())
         )
         return list(result.all())
 
@@ -140,7 +142,9 @@ class ApiKeyRepository:
         )
         return list(result.all())
 
-    async def list_by_tenant_and_status(self, tenant_id: UUID, active_only: bool = True) -> list[ApiKey]:
+    async def list_by_tenant_and_status(
+        self, tenant_id: UUID, active_only: bool = True
+    ) -> list[ApiKey]:
         """List keys for a tenant, optionally filtering by active status."""
         stmt = select(ApiKey).where(ApiKey.tenant_id == tenant_id)
         if active_only:

@@ -135,7 +135,9 @@ class SMTPEmailProvider(EmailProvider):
 class SendGridEmailProvider(EmailProvider):
     """SendGrid email provider (https://sendgrid.com)."""
 
-    def __init__(self, api_key: str, from_email: str, from_name: str | None = None, timeout: int = 30) -> None:
+    def __init__(
+        self, api_key: str, from_email: str, from_name: str | None = None, timeout: int = 30
+    ) -> None:
         self._api_key = api_key
         self._from_email = from_email
         self._from_name = from_name
@@ -155,7 +157,9 @@ class SendGridEmailProvider(EmailProvider):
 
         payload = {
             "personalizations": personalizations,
-            "from": {"email": from_email, "name": from_name} if from_name else {"email": from_email},
+            "from": {"email": from_email, "name": from_name}
+            if from_name
+            else {"email": from_email},
             "subject": message.subject,
             "content": [],
         }
@@ -175,7 +179,9 @@ class SendGridEmailProvider(EmailProvider):
 class ResendEmailProvider(EmailProvider):
     """Resend email provider (https://resend.com)."""
 
-    def __init__(self, api_key: str, from_email: str, from_name: str | None = None, timeout: int = 30) -> None:
+    def __init__(
+        self, api_key: str, from_email: str, from_name: str | None = None, timeout: int = 30
+    ) -> None:
         self._api_key = api_key
         self._from_email = from_email
         self._from_name = from_name

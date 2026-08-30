@@ -26,9 +26,7 @@ class TeamRepository:
 
     async def list(self, tenant_id: UUID) -> list[Team]:
         """Return all team records for the given tenant."""
-        result = await self._session.scalars(
-            select(Team).where(Team.tenant_id == tenant_id)
-        )
+        result = await self._session.scalars(select(Team).where(Team.tenant_id == tenant_id))
         return list(result.all())
 
     async def get(self, tenant_id: UUID, team_id: UUID) -> Team | None:
@@ -66,6 +64,7 @@ class TeamRepository:
     async def add_server(self, team_id: UUID, server_id: UUID) -> None:
         """Associate a server with a team (many-to-many)."""
         from app.models.orm import TeamServer
+
         link = TeamServer(team_id=team_id, server_id=server_id)
         self._session.add(link)
         await self._session.flush()
@@ -76,7 +75,7 @@ class TeamRepository:
         from sqlalchemy.engine import CursorResult
 
         from app.models.orm import TeamServer
-        
+
         cursor: CursorResult[tuple[()]] = await self._session.execute(
             delete(TeamServer).where(
                 TeamServer.team_id == team_id,
@@ -88,6 +87,7 @@ class TeamRepository:
     async def get_servers(self, team_id: UUID) -> list[UUID]:
         """Return all server IDs associated with a team."""
         from app.models.orm import TeamServer
+
         result = await self._session.scalars(
             select(TeamServer.server_id).where(TeamServer.team_id == team_id)
         )
@@ -103,6 +103,7 @@ class OrgMemberRepository:
     async def create(self, tenant_id: UUID, data: OrgMemberCreate) -> OrgMember:
         """Persist a new org member record and return the ORM instance."""
         from app.models.orm import OrgMember
+
         member = OrgMember(
             tenant_id=tenant_id,
             user_subject=data.user_subject,
@@ -116,6 +117,7 @@ class OrgMemberRepository:
     async def list(self, tenant_id: UUID) -> list[OrgMember]:
         """Return all org member records for the given tenant."""
         from app.models.orm import OrgMember
+
         result = await self._session.scalars(
             select(OrgMember).where(OrgMember.tenant_id == tenant_id)
         )
@@ -124,6 +126,7 @@ class OrgMemberRepository:
     async def get(self, tenant_id: UUID, member_id: UUID) -> OrgMember | None:
         """Return the org member with the given ID scoped to tenant, or None if not found."""
         from app.models.orm import OrgMember
+
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.id == member_id,
@@ -135,6 +138,7 @@ class OrgMemberRepository:
     async def get_by_subject(self, tenant_id: UUID, user_subject: str) -> OrgMember | None:
         """Return the org member with the given user_subject scoped to tenant."""
         from app.models.orm import OrgMember
+
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.tenant_id == tenant_id,
@@ -146,6 +150,7 @@ class OrgMemberRepository:
     async def get_by_team(self, tenant_id: UUID, team_id: UUID) -> list[OrgMember]:
         """Return all org members belonging to a specific team."""
         from app.models.orm import OrgMember
+
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.tenant_id == tenant_id,
@@ -169,6 +174,7 @@ class OrgMemberRepository:
     async def list_by_role(self, tenant_id: UUID, role: str) -> list[OrgMember]:
         """Return all org members with a specific role."""
         from app.models.orm import OrgMember, OrgMemberRole
+
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.tenant_id == tenant_id,
@@ -182,6 +188,7 @@ class OrgMemberRepository:
         from sqlalchemy import func
 
         from app.models.orm import OrgMember, OrgMemberRole
+
         result = await self._session.scalar(
             select(func.count(OrgMember.id)).where(
                 OrgMember.tenant_id == tenant_id,

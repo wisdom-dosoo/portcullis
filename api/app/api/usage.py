@@ -24,7 +24,6 @@ from app.auth.dependencies import authenticated_subject, platform_admin_subject
 from app.auth.licenses import LicenseService
 from app.auth.subject import Subject
 from app.config import Settings
-from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import UsageDaily
 from app.models.schemas import UsageTotalsView, UsageView
 from app.repositories.usage import UsageRepository
@@ -45,15 +44,15 @@ def _monthly_cap(plan, settings: Settings) -> int:
 
 @router.get("/v1/usage", response_model=UsageView)
 async def org_usage(
-    _subject: Annotated[Subject, Depends(authenticated_subject)],
+    subject: Annotated[Subject, Depends(authenticated_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> UsageView:
     """Return the org's current-month usage and plan limits."""
     today = datetime.now(UTC).date()
     first = today.replace(day=1)
-    totals = await UsageRepository(session).totals(DEFAULT_TENANT_ID, first, today)
-    license = await LicenseService().current(session, DEFAULT_TENANT_ID)
+    totals = await UsageRepository(session).totals(subject.tenant_id, first, today)
+    license = await LicenseService().current(session, subject.tenant_id)
     plan = license.plan if license else None
     cap = _monthly_cap(plan, settings)
     return UsageView(

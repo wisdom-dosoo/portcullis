@@ -52,7 +52,7 @@ const ALL_SECTIONS: NavSection[] = [
   {
     label: "Administration",
     items: [
-      { href: "/admin/billing",          label: "Billing",         icon: CreditCard },
+      { href: "/admin/billing",          label: "Usage",           icon: CreditCard },
       { href: "/admin/settings",         label: "System Settings", icon: Settings },
     ],
   },

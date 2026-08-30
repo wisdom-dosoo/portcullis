@@ -67,7 +67,10 @@ class ManagementApiRateLimitMiddleware(BaseHTTPMiddleware):
         # Pre-auth rate limit by IP (optional, can be disabled)
         try:
             from app.limits.pre_auth import check_pre_auth_limit
-            pre_auth_result = await check_pre_auth_limit(client_ip, runtime.redis, mgmt_limit, mgmt_window)
+
+            pre_auth_result = await check_pre_auth_limit(
+                client_ip, runtime.redis, mgmt_limit, mgmt_window
+            )
             if not pre_auth_result.allowed:
                 return self._rate_limit_response(request, pre_auth_result, scope="pre_auth")
         except RedisError:
@@ -83,7 +86,9 @@ class ManagementApiRateLimitMiddleware(BaseHTTPMiddleware):
         # Check rate limit for this subject
         rl_result = None
         try:
-            rl_result = await self._check_subject_rate_limit(subject, request.url.path, runtime, settings)
+            rl_result = await self._check_subject_rate_limit(
+                subject, request.url.path, runtime, settings
+            )
             if not rl_result.allowed:
                 return self._rate_limit_response(request, rl_result, scope="management_api")
         except RedisError:
@@ -158,6 +163,7 @@ class ManagementApiRateLimitMiddleware(BaseHTTPMiddleware):
         RATE_LIMIT_REJECTIONS.labels(server_slug="management_api", scope=scope).inc()
 
         from fastapi.responses import JSONResponse
+
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded"},

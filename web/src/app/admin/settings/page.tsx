@@ -256,6 +256,11 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      <div className="rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
+        <Shield className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={2} />
+        <span className="font-semibold">Demo</span>
+        <span style={{ color: "var(--pc-muted)" }}>— settings are UI-only until the backend config API lands. Changes are not persisted.</span>
+      </div>
       {/* Header */}
       <div>
         <h1

@@ -24,18 +24,22 @@ class SlugConflictError(ValueError):
 class RegistryService:
     """CRUD service for managing upstream MCP server registrations."""
 
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self, session: AsyncSession, settings: Settings, tenant_id: UUID | None = None
+    ) -> None:
         self._repo = ServerRepository(session)
         self._session = session
         self._settings = settings
+        self._tenant_id = tenant_id if tenant_id is not None else DEFAULT_TENANT_ID
 
-    async def create(self, command: ServerCreate) -> ServerView:
+    async def create(self, command: ServerCreate, tenant_id: UUID | None = None) -> ServerView:
         """Register a new upstream MCP server.
 
         Raises:
             ValueError: if the URL fails validation, env var is missing for
                         service_token auth, or the slug already exists.
         """
+        tid = tenant_id if tenant_id is not None else self._tenant_id
         validate_upstream_url(
             command.upstream_url,
             self._settings.upstream_hosts_tuple,
@@ -49,15 +53,15 @@ class RegistryService:
         try:
             await require_license(
                 self._session,
-                DEFAULT_TENANT_ID,
+                tid,
                 users=0,
-                servers=await self._repo.count(DEFAULT_TENANT_ID) + 1,
+                servers=await self._repo.count(tid) + 1,
             )
         except LicenseEntitlementError as exc:
             raise ValueError(str(exc)) from exc
 
         try:
-            server = await self._repo.create(DEFAULT_TENANT_ID, command)
+            server = await self._repo.create(tid, command)
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
@@ -65,23 +69,27 @@ class RegistryService:
 
         return ServerView.model_validate(server)
 
-    async def list(self) -> list[ServerView]:
-        """Return all registered MCP servers for the default tenant."""
-        servers = await self._repo.list(DEFAULT_TENANT_ID)
+    async def list(self, tenant_id: UUID | None = None) -> list[ServerView]:
+        """Return all registered MCP servers for the given tenant."""
+        tid = tenant_id if tenant_id is not None else self._tenant_id
+        servers = await self._repo.list(tid)
         return [ServerView.model_validate(s) for s in servers]
 
-    async def get(self, slug: str) -> ServerView:
+    async def get(self, slug: str, tenant_id: UUID | None = None) -> ServerView:
         """Return the MCP server with the given slug.
 
         Raises:
             KeyError: if no server with the given slug exists.
         """
-        server = await self._repo.get_by_slug(DEFAULT_TENANT_ID, slug)
+        tid = tenant_id if tenant_id is not None else self._tenant_id
+        server = await self._repo.get_by_slug(tid, slug)
         if server is None:
             raise KeyError(f"Server '{slug}' not found")
         return ServerView.model_validate(server)
 
-    async def update(self, slug: str, command: ServerUpdate) -> ServerView:
+    async def update(
+        self, slug: str, command: ServerUpdate, tenant_id: UUID | None = None
+    ) -> ServerView:
         """Update an existing MCP server registration.
 
         Raises:
@@ -91,7 +99,8 @@ class RegistryService:
                         slug collides with another server.
             SlugConflictError: if the new slug already belongs to another server.
         """
-        server = await self._repo.get_by_slug(DEFAULT_TENANT_ID, slug)
+        tid = tenant_id if tenant_id is not None else self._tenant_id
+        server = await self._repo.get_by_slug(tid, slug)
         if server is None:
             raise KeyError(f"Server '{slug}' not found")
 
@@ -123,16 +132,17 @@ class RegistryService:
 
         return ServerView.model_validate(server)
 
-    async def delete(self, slug: str) -> None:
+    async def delete(self, slug: str, tenant_id: UUID | None = None) -> None:
         """Delete an MCP server and its exact-slug tool permissions.
 
         Raises:
             KeyError: if no server with the given slug exists.
         """
-        server = await self._repo.get_by_slug(DEFAULT_TENANT_ID, slug)
+        tid = tenant_id if tenant_id is not None else self._tenant_id
+        server = await self._repo.get_by_slug(tid, slug)
         if server is None:
             raise KeyError(f"Server '{slug}' not found")
 
-        await self._repo.delete_exact_slug_permissions(DEFAULT_TENANT_ID, slug)
+        await self._repo.delete_exact_slug_permissions(tid, slug)
         await self._repo.delete(server)
         await self._session.commit()

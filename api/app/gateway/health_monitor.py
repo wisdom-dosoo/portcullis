@@ -70,7 +70,9 @@ class HealthMonitor:
                 )
         else:
             server.consecutive_health_failures += 1
-            UPSTREAM_CONSECUTIVE_FAILURES.labels(server_slug=server.slug).set(server.consecutive_health_failures)
+            UPSTREAM_CONSECUTIVE_FAILURES.labels(server_slug=server.slug).set(
+                server.consecutive_health_failures
+            )
             logger.warning(
                 "health_monitor.probe_failed",
                 slug=server.slug,

@@ -37,38 +37,78 @@ async def create_default_roles(session: AsyncSession, tenant_id: UUID) -> None:
 
     # 2) Define tool permissions per role (server_pattern="*", tool_pattern per role)
     # super_admin: all tools on all servers except billing
-    await _upsert_permission(rbac, role_super_admin.id, "*", "*", PermissionEffect.ALLOW, priority=200)
-    await _upsert_permission(rbac, role_super_admin.id, "*", "billing_*", PermissionEffect.DENY, priority=300)
+    await _upsert_permission(
+        rbac, role_super_admin.id, "*", "*", PermissionEffect.ALLOW, priority=200
+    )
+    await _upsert_permission(
+        rbac, role_super_admin.id, "*", "billing_*", PermissionEffect.DENY, priority=300
+    )
 
     # org_owner: all tools on all servers
     await _upsert_permission(rbac, role_owner.id, "*", "*", PermissionEffect.ALLOW, priority=100)
 
     # org_admin: all tools except billing/org deletion (assume tools prefixed with billing_, org_)
     await _upsert_permission(rbac, role_admin.id, "*", "*", PermissionEffect.ALLOW, priority=50)
-    await _upsert_permission(rbac, role_admin.id, "*", "billing_*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_admin.id, "*", "org_delete*", PermissionEffect.DENY, priority=100)
+    await _upsert_permission(
+        rbac, role_admin.id, "*", "billing_*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_admin.id, "*", "org_delete*", PermissionEffect.DENY, priority=100
+    )
 
     # developer: server/tool management, rate limits, audit read
-    await _upsert_permission(rbac, role_developer.id, "*", "server_*", PermissionEffect.ALLOW, priority=50)
-    await _upsert_permission(rbac, role_developer.id, "*", "tool_*", PermissionEffect.ALLOW, priority=50)
-    await _upsert_permission(rbac, role_developer.id, "*", "rate_limit_*", PermissionEffect.ALLOW, priority=50)
-    await _upsert_permission(rbac, role_developer.id, "*", "audit_*", PermissionEffect.ALLOW, priority=50)
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "server_*", PermissionEffect.ALLOW, priority=50
+    )
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "tool_*", PermissionEffect.ALLOW, priority=50
+    )
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "rate_limit_*", PermissionEffect.ALLOW, priority=50
+    )
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "audit_*", PermissionEffect.ALLOW, priority=50
+    )
     # Deny billing, org management, user management
-    await _upsert_permission(rbac, role_developer.id, "*", "billing_*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_developer.id, "*", "org_*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_developer.id, "*", "user_*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_developer.id, "*", "role_*", PermissionEffect.DENY, priority=100)
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "billing_*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "org_*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "user_*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_developer.id, "*", "role_*", PermissionEffect.DENY, priority=100
+    )
 
     # viewer: read-only access to servers, tools, audit
-    await _upsert_permission(rbac, role_viewer.id, "*", "server_list*", PermissionEffect.ALLOW, priority=50)
-    await _upsert_permission(rbac, role_viewer.id, "*", "tool_list*", PermissionEffect.ALLOW, priority=50)
-    await _upsert_permission(rbac, role_viewer.id, "*", "audit_list*", PermissionEffect.ALLOW, priority=50)
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "server_list*", PermissionEffect.ALLOW, priority=50
+    )
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "tool_list*", PermissionEffect.ALLOW, priority=50
+    )
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "audit_list*", PermissionEffect.ALLOW, priority=50
+    )
     # Deny all write operations
-    await _upsert_permission(rbac, role_viewer.id, "*", "*_create*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_viewer.id, "*", "*_update*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_viewer.id, "*", "*_delete*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_viewer.id, "*", "billing_*", PermissionEffect.DENY, priority=100)
-    await _upsert_permission(rbac, role_viewer.id, "*", "org_*", PermissionEffect.DENY, priority=100)
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "*_create*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "*_update*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "*_delete*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "billing_*", PermissionEffect.DENY, priority=100
+    )
+    await _upsert_permission(
+        rbac, role_viewer.id, "*", "org_*", PermissionEffect.DENY, priority=100
+    )
 
 
 async def _get_or_create_role(rbac: RbacRepository, tenant_id: UUID, name: str):

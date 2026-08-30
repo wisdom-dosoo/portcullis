@@ -13,7 +13,6 @@ from app.auth.api_keys import issue_key, revoke_key
 from app.auth.dependencies import admin_subject
 from app.auth.subject import Subject
 from app.config import Settings
-from app.gateway.registry import DEFAULT_TENANT_ID
 from app.models.schemas import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyView
 from app.repositories.api_keys import ApiKeyRepository
 
@@ -25,7 +24,7 @@ async def create_api_key(
     body: ApiKeyCreate,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _subject: Annotated[Subject, Depends(admin_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
 ) -> ApiKeyCreateResponse:
     """Issue a new API key. Requires admin scope.
 
@@ -36,7 +35,7 @@ async def create_api_key(
         scopes=body.scopes,
         pepper=settings.api_key_pepper,
         session=session,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=subject.tenant_id,
     )
     # Fetch the persisted ORM record to build the view
     repo = ApiKeyRepository(session)
@@ -50,11 +49,11 @@ async def create_api_key(
 @router.get("", response_model=list[ApiKeyView])
 async def list_api_keys(
     session: Annotated[AsyncSession, Depends(get_session)],
-    _subject: Annotated[Subject, Depends(admin_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
 ) -> list[ApiKeyView]:
     """Return all active API keys for the tenant. Requires admin scope (least privilege)."""
     repo = ApiKeyRepository(session)
-    keys = await repo.list_active(DEFAULT_TENANT_ID)
+    keys = await repo.list_active(subject.tenant_id)
     return [ApiKeyView.model_validate(k) for k in keys]
 
 
@@ -62,11 +61,11 @@ async def list_api_keys(
 async def revoke_api_key(
     key_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
-    _subject: Annotated[Subject, Depends(admin_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
 ) -> Response:
     """Revoke an API key by ID. Requires admin scope."""
     try:
-        await revoke_key(key_id=key_id, tenant_id=DEFAULT_TENANT_ID, session=session)
+        await revoke_key(key_id=key_id, tenant_id=subject.tenant_id, session=session)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Key {key_id} not found") from exc
     return Response(status_code=204)

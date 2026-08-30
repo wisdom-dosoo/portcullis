@@ -110,10 +110,12 @@ class MerkleTree:
                 # If our target is in this pair, record the sibling
                 if target_index == i or target_index == i + 1:
                     sibling = right if target_index == i else left
-                    proof.append({
-                        "hash": sibling.hash,
-                        "position": "right" if target_index == i else "left",
-                    })
+                    proof.append(
+                        {
+                            "hash": sibling.hash,
+                            "position": "right" if target_index == i else "left",
+                        }
+                    )
 
                 parent_hash = MerkleTree.hash_pair(left.hash, right.hash)
                 parent = MerkleNode(hash=parent_hash, left=left, right=right)
@@ -180,9 +182,7 @@ class TamperEvidentAuditLog:
 
             # Compute current hash = H(prev_hash || payload)
             payload_bytes = json.dumps(payload, sort_keys=True).encode()
-            current_hash = hashlib.sha256(
-                prev_hash.encode() + payload_bytes
-            ).hexdigest()
+            current_hash = hashlib.sha256(prev_hash.encode() + payload_bytes).hexdigest()
 
             # Store chain metadata in audit_log.detail
             chain_data = {
@@ -234,9 +234,7 @@ class TamperEvidentAuditLog:
             # Recompute current hash
             payload = {k: v for k, v in entry.__dict__.items() if k != "detail"}
             payload_bytes = json.dumps(payload, sort_keys=True).encode()
-            computed_hash = hashlib.sha256(
-                prev_hash.encode() + payload_bytes
-            ).hexdigest()
+            computed_hash = hashlib.sha256(prev_hash.encode() + payload_bytes).hexdigest()
 
             if computed_hash != current:
                 return {
@@ -274,15 +272,17 @@ class TamperEvidentAuditLog:
             for e in entries:
                 chain = e.detail.get("chain", {})
                 payload = {k: v for k, v in e.__dict__.items() if k != "detail"}
-                chain_entries.append(AuditChainEntry(
-                    index=chain.get("chain_index", 0),
-                    audit_id=e.id,
-                    timestamp=e.created_at,
-                    prev_hash=chain.get("prev_hash", ""),
-                    current_hash=chain.get("current_hash", ""),
-                    merkle_root="",  # Will be computed
-                    payload=payload,
-                ))
+                chain_entries.append(
+                    AuditChainEntry(
+                        index=chain.get("chain_index", 0),
+                        audit_id=e.id,
+                        timestamp=e.created_at,
+                        prev_hash=chain.get("prev_hash", ""),
+                        current_hash=chain.get("current_hash", ""),
+                        merkle_root="",  # Will be computed
+                        payload=payload,
+                    )
+                )
 
             merkle_root = MerkleTree.get_root_hash(chain_entries)
             target_idx = chain_index - start
@@ -333,7 +333,11 @@ class AuditRetentionPolicy:
             # In production, would write to cold storage (S3, Glacier)
             # For now, just mark as archived
             for entry in entries:
-                entry.detail = {**(entry.detail or {}), "archived": True, "archived_at": datetime.now(UTC).isoformat()}
+                entry.detail = {
+                    **(entry.detail or {}),
+                    "archived": True,
+                    "archived_at": datetime.now(UTC).isoformat(),
+                }
 
             await session.commit()
 
@@ -349,9 +353,7 @@ class AuditRetentionPolicy:
 
             from app.models.orm import AuditLog
 
-            result = await session.execute(
-                delete(AuditLog).where(AuditLog.created_at < cutoff)
-            )
+            result = await session.execute(delete(AuditLog).where(AuditLog.created_at < cutoff))
             await session.commit()
 
             logger.info("audit.purged", count=result.rowcount, cutoff=cutoff.isoformat())

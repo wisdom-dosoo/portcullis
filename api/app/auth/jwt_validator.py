@@ -153,7 +153,9 @@ async def _fetch_jwks(url: str) -> dict:
         raise ValueError("invalid bearer token")
 
 
-async def verify_jwt(raw_token: str, settings: Settings, jwks_cache: JwksCache | None = None) -> Subject:
+async def verify_jwt(
+    raw_token: str, settings: Settings, jwks_cache: JwksCache | None = None
+) -> Subject:
     """Verify a raw JWT bearer token against the configured JWKS endpoint.
 
     Args:
@@ -226,9 +228,7 @@ async def _get_jwks_legacy(settings: Settings) -> dict:
     async with _jwks_lock:
         now = time.monotonic()
         fetched_at = _jwks_cache.get("fetched_at")
-        if (
-            fetched_at is None or (now - fetched_at) >= settings.jwt_jwks_cache_ttl_seconds
-        ):
+        if fetched_at is None or (now - fetched_at) >= settings.jwt_jwks_cache_ttl_seconds:
             jwks_data = await _fetch_jwks(settings.jwt_jwks_url)
             _jwks_cache["keys"] = jwks_data
             _jwks_cache["fetched_at"] = now

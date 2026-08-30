@@ -27,7 +27,9 @@ from app.repositories.org_members import OrgMemberRepository
 
 admin_router = APIRouter(prefix="/admin/platform/license", tags=["admin-license"])
 org_router = APIRouter(prefix="/v1/license", tags=["license"])
-tenant_license_router = APIRouter(prefix="/admin/tenants/{tenant_id}/license", tags=["admin-license"])
+tenant_license_router = APIRouter(
+    prefix="/admin/tenants/{tenant_id}/license", tags=["admin-license"]
+)
 
 
 @admin_router.get("", response_model=LicenseView | None)
@@ -88,7 +90,7 @@ async def admin_revoke_license(
 
 @org_router.get("", response_model=LicenseUsageView | None)
 async def org_get_license(
-    _subject: Annotated[Subject, Depends(admin_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> LicenseUsageView | None:
     """Return the org's current license entitlements with usage, or None (admin only).
@@ -96,13 +98,13 @@ async def org_get_license(
     Read-only — never exposes the license key itself.  Seat usage counts the
     tenant's org-member rows; server usage counts registered servers.
     """
-    license = await LicenseService().current(session, DEFAULT_TENANT_ID)
+    license = await LicenseService().current(session, subject.tenant_id)
     if license is None:
         return None
-    members = await OrgMemberRepository(session).count(DEFAULT_TENANT_ID)
+    members = await OrgMemberRepository(session).count(subject.tenant_id)
     from app.repositories.servers import ServerRepository
 
-    servers = await ServerRepository(session).count(DEFAULT_TENANT_ID)
+    servers = await ServerRepository(session).count(subject.tenant_id)
     return LicenseUsageView(
         **LicenseView.model_validate(license).model_dump(),
         seats_used=members,

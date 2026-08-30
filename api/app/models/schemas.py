@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Literal, Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -536,18 +536,21 @@ class TenantProvisionResponse(BaseModel):
 
 class TeamCreate(BaseModel):
     """Schema for creating a new team."""
+
     name: str = Field(min_length=1, max_length=200)
 
 
 class TeamUpdate(BaseModel):
     """Schema for updating an existing team (all fields optional)."""
+
     name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class TeamView(BaseModel):
     """Safe response schema for a team."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: UUID
     tenant_id: UUID
     name: str
@@ -558,6 +561,7 @@ class TeamView(BaseModel):
 
 class OrgMemberCreate(BaseModel):
     """Schema for inviting/adding a new org member."""
+
     user_subject: str = Field(min_length=1, max_length=500)
     admin_role: OrgMemberRole = OrgMemberRole.DEVELOPER
     team_id: UUID | None = None
@@ -565,14 +569,16 @@ class OrgMemberCreate(BaseModel):
 
 class OrgMemberUpdate(BaseModel):
     """Schema for updating an org member (all fields optional)."""
+
     admin_role: OrgMemberRole | None = None
     team_id: UUID | None = None
 
 
 class OrgMemberView(BaseModel):
     """Safe response schema for an org member."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: UUID
     tenant_id: UUID
     user_subject: str
@@ -615,14 +621,6 @@ class InstanceSummaryView(BaseModel):
     active_24h: int
 
 
-
-
-
-
-
-
-
-
 class ScimUser(BaseModel):
     """SCIM 1.1/1.2 User resource."""
 
@@ -658,7 +656,9 @@ class ScimUser(BaseModel):
     active: bool | None = None
     groups: list[str] | None = None
 
-    schemas: list[str] = Field(default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:User"])
+    schemas: list[str] = Field(
+        default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:User"]
+    )
     emoji: str | None = None
 
 
@@ -687,7 +687,9 @@ class ScimGroup(BaseModel):
 
     members: list[dict[str, str]] | None = None
 
-    schemas: list[str] = Field(default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:Group"])
+    schemas: list[str] = Field(
+        default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:Group"]
+    )
     classified: bool | None = None
     lastModified: datetime | None = None
     location: str | None = None
@@ -706,5 +708,7 @@ class ScimGroup(BaseModel):
 
     members: list[dict[str, str]] | None = None
 
-    schemas: list[str] = Field(default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:Group"])
+    schemas: list[str] = Field(
+        default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:Group"]
+    )
     classified: bool | None = None

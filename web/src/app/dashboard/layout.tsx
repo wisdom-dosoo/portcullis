@@ -55,7 +55,7 @@ const SECTIONS: NavSection[] = [
       { href: "/dashboard/alerts",          label: "Alerts",        icon: Bell },
       { href: "/dashboard/notifications",   label: "Notifications", icon: BellDot },
       { href: "/dashboard/integrations",    label: "Integrations",  icon: Puzzle },
-      { href: "/dashboard/billing",         label: "Billing",       icon: CreditCard },
+      { href: "/dashboard/billing",         label: "Usage",         icon: CreditCard },
       { href: "/dashboard/settings",        label: "Settings",      icon: Settings },
     ],
   },

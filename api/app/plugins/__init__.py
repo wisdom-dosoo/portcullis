@@ -13,8 +13,8 @@ from fastapi import Request, Response
 class PluginPhase(Enum):
     """Where in the request lifecycle the plugin runs."""
 
-    PRE_AUTH = "pre_auth"          # Before authentication
-    POST_AUTH = "post_auth"        # After auth, before RBAC
+    PRE_AUTH = "pre_auth"  # Before authentication
+    POST_AUTH = "post_auth"  # After auth, before RBAC
     PRE_RATE_LIMIT = "pre_rate_limit"  # Before rate limiting
     POST_RATE_LIMIT = "post_rate_limit"  # After rate limiting
     PRE_UPSTREAM = "pre_upstream"  # Before forwarding to upstream
@@ -90,6 +90,7 @@ class HTTPPlugin(Plugin):
         self.timeout = timeout
         self.headers = headers or {}
         import httpx
+
         self._client = httpx.AsyncClient(timeout=timeout)
 
     async def execute(self, context: PluginContext) -> PluginContext | Response:
@@ -153,9 +154,7 @@ class PluginRegistry:
     """Registry for managing and executing plugins."""
 
     def __init__(self):
-        self._plugins: dict[PluginPhase, list[Plugin]] = {
-            phase: [] for phase in PluginPhase
-        }
+        self._plugins: dict[PluginPhase, list[Plugin]] = {phase: [] for phase in PluginPhase}
 
     def register(self, plugin: Plugin) -> None:
         """Register a plugin."""
@@ -229,6 +228,7 @@ class RequestLoggingPlugin(Plugin):
 
     async def execute(self, context: PluginContext) -> PluginContext:
         import structlog
+
         logger = structlog.get_logger("plugin.request_logging")
         logger.info(
             "request",
@@ -250,8 +250,12 @@ class SecurityHeadersPlugin(Plugin):
         if context.response:
             context.response.headers.setdefault("X-Content-Type-Options", "nosniff")
             context.response.headers.setdefault("X-Frame-Options", "DENY")
-            context.response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-            context.response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=()")
+            context.response.headers.setdefault(
+                "Referrer-Policy", "strict-origin-when-cross-origin"
+            )
+            context.response.headers.setdefault(
+                "Permissions-Policy", "geolocation=(), microphone=()"
+            )
         return context
 
 
@@ -269,6 +273,7 @@ class RequestSizeLimitPlugin(Plugin):
         content_length = context.request.headers.get("content-length")
         if content_length and int(content_length) > self.max_size:
             from fastapi.responses import JSONResponse
+
             return JSONResponse(
                 status_code=413,
                 content={"detail": f"Request body exceeds {self.max_size} bytes"},

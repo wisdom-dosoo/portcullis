@@ -95,7 +95,9 @@ class _AuthContext:
             )
         except RedisError as exc:
             logger.error("proxy.pre_auth_redis_error", error=str(exc))
-            return _json_error(self.request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable")
+            return _json_error(
+                self.request, 503, rpc_id, INTERNAL_ERROR, "Rate limit backend unavailable"
+            )
 
         if not pre_auth_result.allowed:
             headers = _rate_limit_headers(pre_auth_result)
@@ -109,10 +111,14 @@ class _AuthContext:
         raw_token = authorization.removeprefix("Bearer ").strip()
         if not raw_token:
             AUTH_FAILURES.labels(reason="missing_credentials").inc()
-            return _json_error(self.request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
+            return _json_error(
+                self.request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials"
+            )
 
         try:
-            self.subject = await authenticate(raw_token, self.settings, self.session, self._jwks_cache)
+            self.subject = await authenticate(
+                raw_token, self.settings, self.session, self._jwks_cache
+            )
         except ValueError:
             AUTH_FAILURES.labels(reason="invalid_credentials").inc()
             await record_event(
@@ -123,7 +129,9 @@ class _AuthContext:
                 client_ip=self.client_ip,
                 request_id=self.request_id,
             )
-            return _json_error(self.request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials")
+            return _json_error(
+                self.request, 401, rpc_id, UNAUTHORIZED, "Invalid or missing credentials"
+            )
 
         return None
 
@@ -131,13 +139,21 @@ class _AuthContext:
         """Resolve and validate the upstream server. Returns error response or None on success."""
         if self.subject is None:
             return _json_error(
-                self.request, 500, rpc_id, INTERNAL_ERROR, "Authentication required before server resolution"
+                self.request,
+                500,
+                rpc_id,
+                INTERNAL_ERROR,
+                "Authentication required before server resolution",
             )
         repo = ServerRepository(self.session)
         self.server = await repo.get_by_slug(self.subject.tenant_id, self.server_slug)
         if self.server is None:
             return _json_error(
-                self.request, 503, rpc_id, UPSTREAM_UNAVAILABLE, f"Server '{self.server_slug}' not found"
+                self.request,
+                503,
+                rpc_id,
+                UPSTREAM_UNAVAILABLE,
+                f"Server '{self.server_slug}' not found",
             )
         if self.server.status in (ServerStatus.DISABLED, ServerStatus.UNHEALTHY):
             return _json_error(
@@ -149,11 +165,17 @@ class _AuthContext:
             )
         return None
 
-    async def check_rate_limit(self, tool_or_method: str, rpc_id: int | str | None = None) -> JSONResponse | None:
+    async def check_rate_limit(
+        self, tool_or_method: str, rpc_id: int | str | None = None
+    ) -> JSONResponse | None:
         """Check rate limit for the request. Returns error response or None on success."""
         if self.subject is None:
             return _json_error(
-                self.request, 500, rpc_id, INTERNAL_ERROR, "Authentication required before rate limiting"
+                self.request,
+                500,
+                rpc_id,
+                INTERNAL_ERROR,
+                "Authentication required before rate limiting",
             )
         rl_repo = RateLimitRepository(self.session)
         policies = await rl_repo.list(self.subject.tenant_id)
@@ -249,6 +271,25 @@ async def mcp_proxy(
     client_ip = getattr(request.client, "host", "unknown") if request.client else "unknown"
     start_time = time.perf_counter()
 
+    # Plugin hook: PRE_AUTH — extensibility point (Gap 5)
+    try:
+        from app.plugins import PluginContext, PluginPhase, get_plugin_registry
+
+        _registry = get_plugin_registry()
+        # Only run if plugins are registered (no overhead when registry is empty)
+        if _registry.get_plugins(PluginPhase.PRE_AUTH):
+            from fastapi.responses import Response as _Resp
+
+            ctx = PluginContext(request=request, phase=PluginPhase.PRE_AUTH)
+            result = await _registry.execute_phase(PluginPhase.PRE_AUTH, ctx)
+            if isinstance(result, _Resp):
+                return result
+    except Exception:
+        # Plugins must never break the gateway — fail open with a log
+        import structlog as _sl
+
+        _sl.get_logger(__name__).warning("plugin.pre_auth_failed", server_slug=server_slug)
+
     # -------------------------------------------------------------------------
     # Step 1: Read and bound the request body, then validate JSON-RPC
     # -------------------------------------------------------------------------
@@ -311,7 +352,10 @@ async def mcp_proxy(
             resource_name: str | None = None
             if method == "tools/call" and rpc_request.params:
                 resource_name = rpc_request.params.get("name")
-            elif method in {"resources/read", "resources/subscribe", "resources/unsubscribe"} and rpc_request.params:
+            elif (
+                method in {"resources/read", "resources/subscribe", "resources/unsubscribe"}
+                and rpc_request.params
+            ):
                 resource_name = rpc_request.params.get("uri")
             elif method == "prompts/get" and rpc_request.params:
                 resource_name = rpc_request.params.get("name")
@@ -332,7 +376,11 @@ async def mcp_proxy(
             if method in rbac_required_methods:
                 if resource_name is None:
                     return _json_error(
-                        request, 422, rpc_id, INVALID_PARAMS, f"{method} requires resource identifier"
+                        request,
+                        422,
+                        rpc_id,
+                        INVALID_PARAMS,
+                        f"{method} requires resource identifier",
                     )
 
                 rbac_repo = RbacRepository(session)
@@ -366,7 +414,11 @@ async def mcp_proxy(
                         detail={"rule_id": str(decision.rule_id), "reason": decision.reason},
                     )
                     return _json_error(
-                        request, 403, rpc_id, FORBIDDEN, f"Resource '{resource_name}' is not permitted"
+                        request,
+                        403,
+                        rpc_id,
+                        FORBIDDEN,
+                        f"Resource '{resource_name}' is not permitted",
                     )
 
             # -------------------------------------------------------------------------
@@ -376,16 +428,18 @@ async def mcp_proxy(
                 inbound_session_id = request.headers.get("mcp-session-id")
                 if not inbound_session_id:
                     return _json_error(
-                        request, 400, rpc_id, INVALID_PARAMS, "session/terminate requires Mcp-Session-Id header"
+                        request,
+                        400,
+                        rpc_id,
+                        INVALID_PARAMS,
+                        "session/terminate requires Mcp-Session-Id header",
                     )
 
                 # Verify the session belongs to this subject
                 session_store = SessionStore(runtime.redis)
                 session_record = await session_store.lookup(inbound_session_id)
                 if not session_record:
-                    return _json_error(
-                        request, 404, rpc_id, INVALID_PARAMS, "Session not found"
-                    )
+                    return _json_error(request, 404, rpc_id, INVALID_PARAMS, "Session not found")
 
                 # Verify ownership
                 if (
@@ -516,7 +570,9 @@ async def mcp_proxy(
                     ctx.rl_headers,
                 )
             finally:
-                UPSTREAM_REQUEST_DURATION.labels(server_slug=server_slug).observe(time.perf_counter() - upstream_start)
+                UPSTREAM_REQUEST_DURATION.labels(server_slug=server_slug).observe(
+                    time.perf_counter() - upstream_start
+                )
 
             # Capture upstream session id once the response headers are known.
             upstream_session_id = upstream_response.headers.get("mcp-session-id")
@@ -592,13 +648,21 @@ async def mcp_proxy(
                     )
 
                 if method == "tools/list":
-                    filtered = await filter_tools_list(response_body, ctx.subject, server_slug, session)
+                    filtered = await filter_tools_list(
+                        response_body, ctx.subject, server_slug, session
+                    )
                 elif method == "resources/list":
-                    filtered = await filter_resources_list(response_body, ctx.subject, server_slug, session)
+                    filtered = await filter_resources_list(
+                        response_body, ctx.subject, server_slug, session
+                    )
                 elif method == "prompts/list":
-                    filtered = await filter_prompts_list(response_body, ctx.subject, server_slug, session)
+                    filtered = await filter_prompts_list(
+                        response_body, ctx.subject, server_slug, session
+                    )
                 elif method == "roots/list":
-                    filtered = await filter_roots_list(response_body, ctx.subject, server_slug, session)
+                    filtered = await filter_roots_list(
+                        response_body, ctx.subject, server_slug, session
+                    )
                 else:
                     filtered = response_body
 
@@ -609,7 +673,10 @@ async def mcp_proxy(
                 )
 
             # Default: buffer and return. Audit tool calls and other operations on success.
-            if method in {"tools/call", "resources/read", "prompts/get", "sampling/createMessage"} and upstream_response.status_code < 500:
+            if (
+                method in {"tools/call", "resources/read", "prompts/get", "sampling/createMessage"}
+                and upstream_response.status_code < 500
+            ):
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
                 await record_event(
                     runtime.session_factory,
@@ -701,10 +768,17 @@ async def mcp_sse_stream(
             except UpstreamError as exc:
                 logger.error("proxy.upstream_error", server_slug=server_slug, error=str(exc))
                 return _json_error(
-                    request, 502, None, UPSTREAM_UNAVAILABLE, "Upstream server error", ctx.rl_headers
+                    request,
+                    502,
+                    None,
+                    UPSTREAM_UNAVAILABLE,
+                    "Upstream server error",
+                    ctx.rl_headers,
                 )
             finally:
-                UPSTREAM_REQUEST_DURATION.labels(server_slug=server_slug).observe(time.perf_counter() - upstream_start)
+                UPSTREAM_REQUEST_DURATION.labels(server_slug=server_slug).observe(
+                    time.perf_counter() - upstream_start
+                )
 
             upstream_session_id = upstream_response.headers.get("mcp-session-id")
             response_headers = dict(ctx.rl_headers)
