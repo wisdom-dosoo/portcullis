@@ -64,18 +64,18 @@ const DAY_OF_MONTH  = new Date().getDate();
 
 /* ── demo data generators ────────────────────────────────────────────────── */
 
-function makeDailyUsage(total: number, requestLimit: number): Array<{ day: string; requests: number; limit: number }> {
-  const days: Array<{ day: string; requests: number; limit: number }> = [];
-  const dailyAvg = Math.floor(total / DAY_OF_MONTH);
-  for (let d = 1; d <= DAY_OF_MONTH; d++) {
-    const jitter = Math.floor((Math.random() - 0.4) * dailyAvg * 0.6);
-    days.push({
-      day: `${d}`,
-      requests: Math.max(0, dailyAvg + jitter),
-      limit: Math.floor(requestLimit / DAYS_IN_MONTH),
-    });
+function makeDailyUsage(logs: AuditLogView[], requestLimit: number): Array<{ day: string; requests: number; limit: number }> {
+  // Aggregate real audit logs by day (open source: no jitter)
+  const counts: Record<string, number> = {};
+  for (const l of logs) {
+    if (!l.created_at) continue;
+    const day = String(new Date(l.created_at).getDate());
+    counts[day] = (counts[day] ?? 0) + 1;
   }
-  return days;
+  return Array.from({ length: DAY_OF_MONTH }, (_, i) => {
+    const d = String(i + 1);
+    return { day: d, requests: counts[d] ?? 0, limit: Math.floor(requestLimit / DAYS_IN_MONTH) };
+  });
 }
 
 function makeToolUsage(logs: AuditLogView[]): Array<{ tool: string; count: number }> {
@@ -84,36 +84,22 @@ function makeToolUsage(logs: AuditLogView[]): Array<{ tool: string; count: numbe
     const t = l.tool_name ?? "unknown";
     counts[t] = (counts[t] ?? 0) + 1;
   }
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  // pad with demo data if sparse
-  const demo = [
-    ["search_documents", 8432],
-    ["get_weather", 5210],
-    ["fetch_data", 4890],
-    ["send_email", 3750],
-    ["create_ticket", 2980],
-    ["list_files", 2100],
-    ["run_query", 1850],
-    ["summarize", 1430],
-  ];
-  if (sorted.length < 5) return demo.map(([tool, count]) => ({ tool: tool as string, count: count as number }));
-  return sorted.map(([tool, count]) => ({ tool, count }));
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([tool, count]) => ({ tool, count }));
 }
 
-function makeServerUsage(logs: AuditLogView[], servers: ServerView[]): Array<{ server: string; count: number }> {
+function makeServerUsage(logs: AuditLogView[]): Array<{ server: string; count: number }> {
   const counts: Record<string, number> = {};
   for (const l of logs) {
     const s = l.server_slug ?? "unknown";
     counts[s] = (counts[s] ?? 0) + 1;
   }
-  if (Object.keys(counts).length === 0) {
-    return (servers.slice(0, 5).map((s) => ({ server: s.slug ?? s.name, count: Math.floor(Math.random() * 5000 + 1000) }))).concat([
-      { server: "production-mcp", count: 12400 },
-      { server: "staging-mcp",    count: 4800 },
-      { server: "analytics-mcp",  count: 3200 },
-    ]).slice(0, 6);
-  }
-  return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([server, count]) => ({ server, count }));
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([server, count]) => ({ server, count }));
 }
 
 function makeUserUsage(logs: AuditLogView[]): Array<{ user: string; count: number }> {
@@ -122,15 +108,10 @@ function makeUserUsage(logs: AuditLogView[]): Array<{ user: string; count: numbe
     const u = l.subject_id ? l.subject_id.slice(0, 8) + "…" : "unknown";
     counts[u] = (counts[u] ?? 0) + 1;
   }
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  if (sorted.length < 3) return [
-    { user: "key_a1b2c3d4…", count: 18200 },
-    { user: "key_e5f6g7h8…", count: 11400 },
-    { user: "key_i9j0k1l2…", count: 7600 },
-    { user: "key_m3n4o5p6…", count: 4200 },
-    { user: "key_q7r8s9t0…", count: 2100 },
-  ];
-  return sorted.map(([user, count]) => ({ user, count }));
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([user, count]) => ({ user, count }));
 }
 
 function makeProjection(dailyUsage: Array<{ requests: number }>): Array<{ day: string; actual: number | null; projected: number | null }> {
@@ -414,14 +395,14 @@ export default function UsagePage() {
   const toolCallsUsed = usage?.tool_calls ?? 0;
   const rbacDenials = usage?.rbac_denials ?? 0;
   const rateLimitRejections = usage?.rate_limit_rejections ?? 0;
-  const transferUsed = 34.2;
-  const retentionUsed = 18.7;
-  const memberCount  = 8;
-  const serverCount  = servers.length || 7;
+  const transferUsed = 0; // real transfer not yet metered in open source
+  const retentionUsed = 0; // open source: no retention GB metering
+  const memberCount  = 0; // open source: TODO wire to GET /auth/members
+  const serverCount  = servers.length;
 
-  const dailyUsage  = useMemo(() => makeDailyUsage(requestsUsed, PLAN.requestLimit), [requestsUsed, PLAN.requestLimit]);
+  const dailyUsage  = useMemo(() => makeDailyUsage(logs, PLAN.requestLimit), [logs, PLAN.requestLimit]);
   const toolUsage   = useMemo(() => makeToolUsage(logs), [logs]);
-  const serverUsage = useMemo(() => makeServerUsage(logs, servers), [logs, servers]);
+  const serverUsage = useMemo(() => makeServerUsage(logs), [logs]);
   const userUsage   = useMemo(() => makeUserUsage(logs), [logs]);
   const projection  = useMemo(() => makeProjection(dailyUsage), [dailyUsage]);
 

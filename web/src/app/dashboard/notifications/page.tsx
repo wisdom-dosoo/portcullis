@@ -105,7 +105,7 @@ type FilterValue = "all" | "unread" | NotifType;
 
 export default function NotificationsPage() {
   const [tab, setTab] = useState<TabId>("inbox");
-  const [notifications, setNotifications] = useState<Notification[]>(DEMO_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<Notification[]>([]); // open source: no demo notifications
   const [filter, setFilter] = useState<FilterValue>("all");
   const [prefs, setPrefs] = useState<PrefRow[]>(DEFAULT_PREFS);
 
@@ -146,6 +146,10 @@ export default function NotificationsPage() {
 
   return (
     <div style={{ color: "var(--pc-foreground)" }}>
+      <div className="rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2 mb-4" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
+        <span style={{ fontWeight: 600 }}>Demo</span>
+        <span style={{ color: "var(--pc-muted)" }}>— notifications are local demo — no backend delivery yet.</span>
+      </div>
       {/* header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>

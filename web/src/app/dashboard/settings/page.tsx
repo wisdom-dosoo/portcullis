@@ -36,6 +36,11 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
+        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={2} />
+        <span style={{ fontWeight: 600 }}>Demo</span>
+        <span style={{ color: "var(--pc-muted)" }}>— settings are UI-only until the backend config API lands.</span>
+      </div>
       <div>
         <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--pc-foreground)" }}>Settings</h1>
         <p className="text-sm mt-1" style={{ color: "var(--pc-muted)" }}>Configure your Portcullis gateway preferences</p>

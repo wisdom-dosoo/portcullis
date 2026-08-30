@@ -44,100 +44,11 @@ export interface Notification {
   href?: string;
 }
 
-/* ── Demo data ───────────────────────────────────────────────────────────── */
+/* ── Demo data removed — open source: no fake notifications — see audit logs for real events ── */
 
-export const DEMO_NOTIFICATIONS: Notification[] = [
-  {
-    id: "n1",
-    type: "server_unavailable",
-    title: "Server unavailable",
-    body: "staging-mcp has failed 3 consecutive health checks and is now marked unhealthy.",
-    timestamp: new Date(Date.now() - 5 * 60_000).toISOString(),
-    read: false,
-    href: "/dashboard/servers",
-  },
-  {
-    id: "n2",
-    type: "security_alert",
-    title: "Security alert",
-    body: "18 authentication failures detected from IP 192.168.1.100 in the last 5 minutes.",
-    timestamp: new Date(Date.now() - 12 * 60_000).toISOString(),
-    read: false,
-    href: "/dashboard/audit",
-  },
-  {
-    id: "n3",
-    type: "usage_threshold",
-    title: "Usage threshold reached",
-    body: "Your organization has used 90% of its monthly request quota (450k / 500k).",
-    timestamp: new Date(Date.now() - 40 * 60_000).toISOString(),
-    read: false,
-    href: "/dashboard/billing/usage",
-  },
-  {
-    id: "n4",
-    type: "access_approved",
-    title: "Access request approved",
-    body: "Your request to access production-mcp was approved by admin@example.com.",
-    timestamp: new Date(Date.now() - 2 * 3_600_000).toISOString(),
-    read: true,
-    href: "/developer/servers",
-  },
-  {
-    id: "n5",
-    type: "api_key_expiring",
-    title: "API key expiring soon",
-    body: "The key prod-deploy-key expires in 7 days. Rotate it to avoid service disruption.",
-    timestamp: new Date(Date.now() - 3 * 3_600_000).toISOString(),
-    read: false,
-    href: "/dashboard/api-keys",
-  },
-  {
-    id: "n6",
-    type: "policy_changed",
-    title: "Policy updated",
-    body: "The policy default-developer-policy was modified by alice@example.com. Review the changes.",
-    timestamp: new Date(Date.now() - 5 * 3_600_000).toISOString(),
-    read: true,
-    href: "/dashboard/policies",
-  },
-  {
-    id: "n7",
-    type: "incident_resolved",
-    title: "Incident resolved",
-    body: "INC-003 Production error rate spike has been resolved. Duration: 2h 0m.",
-    timestamp: new Date(Date.now() - 86_400_000 * 2).toISOString(),
-    read: true,
-    href: "/dashboard/alerts/incidents/inc-003",
-  },
-  {
-    id: "n8",
-    type: "invitation",
-    title: "Invitation received",
-    body: "You've been invited to join Acme Corp organization by admin@acme.com.",
-    timestamp: new Date(Date.now() - 86_400_000 * 3).toISOString(),
-    read: true,
-    href: "/dashboard/access-control?tab=members",
-  },
-  {
-    id: "n9",
-    type: "access_denied",
-    title: "Access request denied",
-    body: "Your request to access dev-mcp was denied. Reason: Out of scope for current project.",
-    timestamp: new Date(Date.now() - 86_400_000 * 4).toISOString(),
-    read: true,
-    href: "/developer/servers",
-  },
-  {
-    id: "n10",
-    type: "new_tool",
-    title: "New tool available",
-    body: "12 new tools were discovered on production-mcp: filesystem/*, github/list_prs, and more.",
-    timestamp: new Date(Date.now() - 86_400_000 * 5).toISOString(),
-    read: true,
-    href: "/developer/tools",
-  },
-];
+export const DEMO_NOTIFICATIONS: Notification[] = [] as Notification[]; // kept for export compat
+
+const _DEMO_NOTIFICATIONS_UNUSED: Notification[] = [] as Notification[];
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 

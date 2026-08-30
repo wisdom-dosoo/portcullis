@@ -134,134 +134,7 @@ const CHANNEL_CONFIG: Record<
 
 /* ── demo rules ──────────────────────────────────────────────────────────── */
 
-const DEMO_RULES: AlertRule[] = [
-  {
-    id: "rule-1",
-    name: "Production error rate",
-    type: "high_error_rate",
-    enabled: true,
-    severity: "critical",
-    status: "ok",
-    threshold: "> 5% errors over 5 min",
-    windowSeconds: 300,
-    serverPattern: "production-*",
-    notifications: [
-      { channel: "slack",     destination: "#incidents" },
-      { channel: "pagerduty", destination: "prod-key-abc" },
-    ],
-    lastFiredAt: new Date(Date.now() - 86_400_000 * 2).toISOString(),
-    firingCount: 2,
-    description: "Alert if error rate on production servers exceeds 5% in any 5-minute window.",
-  },
-  {
-    id: "rule-2",
-    name: "Server health check",
-    type: "server_unavailable",
-    enabled: true,
-    severity: "critical",
-    status: "firing",
-    threshold: "unhealthy for > 2 min",
-    windowSeconds: 120,
-    serverPattern: "*",
-    notifications: [
-      { channel: "slack",  destination: "#incidents" },
-      { channel: "email",  destination: "oncall@example.com" },
-      { channel: "in_app", destination: "" },
-    ],
-    lastFiredAt: new Date(Date.now() - 1_200_000).toISOString(),
-    firingCount: 1,
-    description: "Alert when any registered server fails health checks for more than 2 minutes.",
-  },
-  {
-    id: "rule-3",
-    name: "RBAC deny rate",
-    type: "policy_violation",
-    enabled: true,
-    severity: "high",
-    status: "ok",
-    threshold: "> 10 denies over 5 min",
-    windowSeconds: 300,
-    serverPattern: "*",
-    notifications: [
-      { channel: "slack", destination: "#security" },
-      { channel: "email", destination: "security@example.com" },
-    ],
-    lastFiredAt: new Date(Date.now() - 86_400_000 * 5).toISOString(),
-    firingCount: 3,
-    description: "Alert when RBAC deny events spike, which may indicate a misconfigured key or credential leak.",
-  },
-  {
-    id: "rule-4",
-    name: "Auth failure burst",
-    type: "api_key_abuse",
-    enabled: true,
-    severity: "high",
-    status: "pending",
-    threshold: "> 20 auth failures in 5 min",
-    windowSeconds: 300,
-    serverPattern: "*",
-    notifications: [
-      { channel: "slack",  destination: "#security" },
-      { channel: "in_app", destination: "" },
-    ],
-    lastFiredAt: new Date(Date.now() - 3_600_000).toISOString(),
-    firingCount: 5,
-    description: "Alert when repeated authentication failures suggest key scraping or brute-force.",
-  },
-  {
-    id: "rule-5",
-    name: "Request spike detector",
-    type: "request_spike",
-    enabled: false,
-    severity: "medium",
-    status: "silenced",
-    threshold: "> 3× baseline over 1 min",
-    windowSeconds: 60,
-    serverPattern: "*",
-    notifications: [
-      { channel: "slack", destination: "#ops" },
-    ],
-    lastFiredAt: null,
-    firingCount: 0,
-    description: "Alert when request volume suddenly exceeds 3× the rolling 1-hour baseline.",
-  },
-  {
-    id: "rule-6",
-    name: "Suspicious login",
-    type: "suspicious_login",
-    enabled: true,
-    severity: "medium",
-    status: "ok",
-    threshold: "new IP or off-hours access",
-    windowSeconds: 0,
-    serverPattern: "*",
-    notifications: [
-      { channel: "email",  destination: "security@example.com" },
-      { channel: "in_app", destination: "" },
-    ],
-    lastFiredAt: null,
-    firingCount: 0,
-    description: "Alert when an API key is used from an IP not seen in the last 30 days.",
-  },
-  {
-    id: "rule-7",
-    name: "High-risk tool registration",
-    type: "high_risk_tool",
-    enabled: true,
-    severity: "high",
-    status: "ok",
-    threshold: "tool matches high-risk pattern",
-    windowSeconds: 0,
-    serverPattern: "*",
-    notifications: [
-      { channel: "slack",  destination: "#security" },
-      { channel: "email",  destination: "security@example.com" },
-    ],
-    lastFiredAt: null,
-    firingCount: 0,
-    description: "Alert when a newly registered tool matches patterns like *delete*, *drop*, *exec*, or *admin*.",
-  },
-];
+const DEMO_RULES: AlertRule[] = [];
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -967,8 +840,8 @@ export default function AlertsPage() {
   const logs = (logsQuery.data?.data ?? []) as AuditLogView[];
   const servers = (serversQuery.data?.data ?? []) as ServerView[];
 
-  const [rules, setRules] = useState<AlertRule[]>(DEMO_RULES);
-  const [incidents] = useState<Incident[]>(DEMO_INCIDENTS);
+  const [rules, setRules] = useState<AlertRule[]>([]); // open source: no demo data — real alerts come from backend when configured
+  const [incidents] = useState<Incident[]>([]); // open source: no demo incidents
   const [showCreate, setShowCreate] = useState(false);
   const [editRule, setEditRule] = useState<AlertRule | null>(null);
   const [filterStatus, setFilterStatus] = useState<"" | AlertStatus>("");
@@ -1054,6 +927,10 @@ export default function AlertsPage() {
         color: "var(--pc-foreground)",
       }}
     >
+      <div className="rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2 mb-4" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
+        <span style={{ fontWeight: 600 }}>Demo</span>
+        <span style={{ color: "var(--pc-muted)" }}>— alert rules and incidents are local demo — no backend persistence yet.</span>
+      </div>
       {/* header */}
       <div
         style={{

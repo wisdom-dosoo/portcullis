@@ -24,6 +24,7 @@ from app.auth.subject import IssuedKey, Subject
 from app.config import Settings
 from app.gateway.registry import DEFAULT_TENANT_ID
 from app.models.orm import (
+    OrgMember,
     OrgRole,
     SubjectType,
     UserApprovalStatus,
@@ -109,10 +110,9 @@ async def register(
 
     # For org creation (flow=create), enforce 2-organization limit for super admins
     if body.flow == "create":
-        # Check if user is a super admin (platform admin) and enforce 2-org limit
-        existing_user = await repo.get_by_email(DEFAULT_TENANT_ID, body.email)
-        if existing_user and existing_user.is_platform_admin:
-            if existing_user.created_org_count >= 2:
+          # Check if user is a super admin (platform admin) and enforce 2-org limit
+          existing_user = await repo.get_by_email(DEFAULT_TENANT_ID, body.email)
+          if existing_user and existing_user.is_platform_admin and existing_user.created_org_count >= 2:
                 raise HTTPException(
                     status_code=403,
                     detail="Super admin has reached the maximum limit of 2 organizations",
@@ -278,7 +278,7 @@ async def _acting_user_id(session: AsyncSession, subject: Subject) -> UUID | Non
     if subject.subject_type is not SubjectType.API_KEY:
         return None
     keys = ApiKeyRepository(session)
-    api_key = await keys.get_by_id(UUID(subject.subject_id), DEFAULT_TENANT_ID)
+    api_key = await keys.get_by_id(UUID(subject.subject_id), subject.tenant_id)
     if api_key is None:
         return None
     return api_key.user_id
@@ -290,13 +290,13 @@ async def _get_current_org_member(subject: Subject, session: AsyncSession) -> Or
         from app.repositories.api_keys import ApiKeyRepository
 
         keys = ApiKeyRepository(session)
-        api_key = await keys.get_by_id(UUID(subject.subject_id), DEFAULT_TENANT_ID)
+        api_key = await keys.get_by_id(UUID(subject.subject_id), subject.tenant_id)
         if api_key and api_key.user_id:
             return await OrgMemberRepository(session).get_by_subject(
-                DEFAULT_TENANT_ID, str(api_key.user_id)
+                subject.tenant_id, str(api_key.user_id)
             )
     # For OAuth subjects, look up by user_subject
-    return await OrgMemberRepository(session).get_by_subject(DEFAULT_TENANT_ID, subject.subject_id)
+    return await OrgMemberRepository(session).get_by_subject(subject.tenant_id, subject.subject_id)
 
 
 async def _team_view(repo: TeamRepository, team) -> TeamView:
@@ -321,7 +321,7 @@ async def create_invite(
     invites = InviteService()
     invitation, code = await invites.mint(
         session=session,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=subject.tenant_id,
         org_name=body.org_name,
         pepper=settings.api_key_pepper,
         created_by=await _acting_user_id(session, subject),
@@ -342,7 +342,7 @@ async def list_invites(
 ) -> list[InviteView]:
     """List all invitations for the tenant (admin only)."""
     repo = InvitationRepository(session)
-    invitations = await repo.list(DEFAULT_TENANT_ID)
+    invitations = await repo.list(subject.tenant_id)
     return [InviteView.model_validate(i) for i in invitations]
 
 
@@ -354,7 +354,7 @@ async def revoke_invite(
 ) -> None:
     """Revoke an invitation code (admin only)."""
     repo = InvitationRepository(session)
-    if not await repo.revoke(invite_id, DEFAULT_TENANT_ID):
+    if not await repo.revoke(invite_id, subject.tenant_id):
         raise HTTPException(status_code=404, detail="Invitation not found or already used")
     await session.commit()
 
@@ -366,7 +366,7 @@ async def list_pending_users(
 ) -> list[UserView]:
     """List users awaiting join-request approval (admin only)."""
     repo = UserRepository(session)
-    users = await repo.list_by_status(DEFAULT_TENANT_ID, UserApprovalStatus.PENDING)
+    users = await repo.list_by_status(subject.tenant_id, UserApprovalStatus.PENDING)
     return [UserView.model_validate(u) for u in users]
 
 
@@ -382,14 +382,14 @@ async def approve_user(
     if body.user_id != user_id:
         raise HTTPException(status_code=422, detail="user_id mismatch")
     repo = UserRepository(session)
-    user = await repo.get_by_id(DEFAULT_TENANT_ID, user_id)
+    user = await repo.get_by_id(subject.tenant_id, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
     # Enforce seat entitlement before approving a new member.
     # License check removed - no seat restrictions in open-source build
 
-    if not await repo.set_approval_status(DEFAULT_TENANT_ID, user_id, UserApprovalStatus.APPROVED):
+    if not await repo.set_approval_status(subject.tenant_id, user_id, UserApprovalStatus.APPROVED):
         raise HTTPException(status_code=404, detail="User not found")
 
     issued = await _issue_user_token(session, user.id, user.email, settings)
@@ -407,7 +407,7 @@ async def reject_user(
 ) -> None:
     """Reject a pending join request (admin only)."""
     repo = UserRepository(session)
-    if not await repo.set_approval_status(DEFAULT_TENANT_ID, user_id, UserApprovalStatus.REJECTED):
+    if not await repo.set_approval_status(subject.tenant_id, user_id, UserApprovalStatus.REJECTED):
         raise HTTPException(status_code=404, detail="User not found")
     await session.commit()
 
@@ -433,14 +433,14 @@ async def create_team(
         from app.repositories.api_keys import ApiKeyRepository
 
         keys = ApiKeyRepository(session)
-        api_key = await keys.get_by_id(UUID(subject.subject_id), DEFAULT_TENANT_ID)
+        api_key = await keys.get_by_id(UUID(subject.subject_id), subject.tenant_id)
         if api_key and api_key.user_id:
             member = await OrgMemberRepository(session).get_by_subject(
-                DEFAULT_TENANT_ID, str(api_key.user_id)
+                subject.tenant_id, str(api_key.user_id)
             )
     else:
         member = await OrgMemberRepository(session).get_by_subject(
-            DEFAULT_TENANT_ID, subject.subject_id
+            subject.tenant_id, subject.subject_id
         )
 
     if member:
@@ -449,7 +449,7 @@ async def create_team(
             raise HTTPException(status_code=403, detail=perm_decision.reason)
 
     repo = TeamRepository(session)
-    team = await repo.create(DEFAULT_TENANT_ID, body)
+    team = await repo.create(subject.tenant_id, body)
     await session.commit()
     return await _team_view(repo, team)
 
@@ -461,7 +461,7 @@ async def list_teams(
 ) -> list[TeamView]:
     """List all teams in the organization."""
     repo = TeamRepository(session)
-    teams = await repo.list(DEFAULT_TENANT_ID)
+    teams = await repo.list(_subject.tenant_id)
     return [await _team_view(repo, t) for t in teams]
 
 
@@ -473,7 +473,7 @@ async def get_team(
 ) -> TeamView:
     """Get a single team by ID."""
     repo = TeamRepository(session)
-    team = await repo.get(DEFAULT_TENANT_ID, team_id)
+    team = await repo.get(_subject.tenant_id, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
     return await _team_view(repo, team)
@@ -487,12 +487,34 @@ async def update_team(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TeamView:
     """Update a team (admin only)."""
+    # Enforce RBAC: only org_owner/org_admin can manage teams
+    member = await _get_current_org_member(subject, session)
+    if member is not None:
+        decision = has_permission(member, AdminAction.CREATE_TEAM)
+        if not decision.allowed:
+            raise HTTPException(status_code=403, detail=decision.reason)
     repo = TeamRepository(session)
-    team = await repo.get(DEFAULT_TENANT_ID, team_id)
+    team = await repo.get(subject.tenant_id, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
     team = await repo.update(team, body)
     await session.commit()
+    # Audit team update (best-effort, never blocks)
+    try:
+        from app.models.orm import AuditEventType
+        from app.repositories.audit import AuditRepository
+
+        await AuditRepository(session).create(
+            event_type=AuditEventType.TOOL_CALL,
+            outcome="allowed",
+            tenant_id=subject.tenant_id,
+            subject_id=subject.subject_id,
+            subject_type=subject.subject_type,
+            detail={"action": "team_updated", "team_id": str(team_id)},
+        )
+        await session.commit()
+    except Exception:
+        pass
     return await _team_view(repo, team)
 
 
@@ -503,12 +525,32 @@ async def delete_team(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     """Delete a team (admin only)."""
+    member = await _get_current_org_member(subject, session)
+    if member is not None:
+        decision = has_permission(member, AdminAction.CREATE_TEAM)
+        if not decision.allowed:
+            raise HTTPException(status_code=403, detail=decision.reason)
     repo = TeamRepository(session)
-    team = await repo.get(DEFAULT_TENANT_ID, team_id)
+    team = await repo.get(subject.tenant_id, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
     await repo.delete(team)
     await session.commit()
+    try:
+        from app.models.orm import AuditEventType
+        from app.repositories.audit import AuditRepository
+
+        await AuditRepository(session).create(
+            event_type=AuditEventType.TOOL_CALL,
+            outcome="allowed",
+            tenant_id=subject.tenant_id,
+            subject_id=subject.subject_id,
+            subject_type=subject.subject_type,
+            detail={"action": "team_deleted", "team_id": str(team_id)},
+        )
+        await session.commit()
+    except Exception:
+        pass
 
 
 @router.post("/teams/{team_id}/servers/{server_id}", status_code=204)
@@ -521,7 +563,7 @@ async def add_server_to_team(
     """Assign a server to a team (admin only)."""
     repo = TeamRepository(session)
     # Verify both exist
-    team = await repo.get(DEFAULT_TENANT_ID, team_id)
+    team = await repo.get(subject.tenant_id, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
     from app.repositories.servers import ServerRepository
@@ -533,7 +575,7 @@ async def add_server_to_team(
     from app.models.orm import McpServer
 
     result = await session.scalars(
-        select(McpServer).where(McpServer.id == server_id, McpServer.tenant_id == DEFAULT_TENANT_ID)
+        select(McpServer).where(McpServer.id == server_id, McpServer.tenant_id == subject.tenant_id)
     )
     server = result.first()
     if server is None:
@@ -559,7 +601,7 @@ async def remove_server_from_team(
 ) -> None:
     """Remove a server from a team (admin only)."""
     repo = TeamRepository(session)
-    team = await repo.get(DEFAULT_TENANT_ID, team_id)
+    team = await repo.get(subject.tenant_id, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -591,7 +633,7 @@ async def create_member(
     repo = OrgMemberRepository(session)
 
     # Check if user already exists in this org
-    existing = await repo.get_by_subject(DEFAULT_TENANT_ID, body.user_subject)
+    existing = await repo.get_by_subject(subject.tenant_id, body.user_subject)
     if existing is not None:
         raise HTTPException(status_code=409, detail="Member already exists in this organization")
 
@@ -605,7 +647,7 @@ async def create_member(
         if not perm_decision:
             raise HTTPException(status_code=403, detail=f"Cannot invite role {body.admin_role}")
 
-    member = await repo.create(DEFAULT_TENANT_ID, body)
+    member = await repo.create(subject.tenant_id, body)
     await session.commit()
     return OrgMemberView.model_validate(member)
 
@@ -617,7 +659,7 @@ async def list_members(
 ) -> list[OrgMemberView]:
     """List all org members."""
     repo = OrgMemberRepository(session)
-    members = await repo.list(DEFAULT_TENANT_ID)
+    members = await repo.list(_subject.tenant_id)
     return [OrgMemberView.model_validate(m) for m in members]
 
 
@@ -629,7 +671,7 @@ async def get_member(
 ) -> OrgMemberView:
     """Get a single org member by ID."""
     repo = OrgMemberRepository(session)
-    member = await repo.get(DEFAULT_TENANT_ID, member_id)
+    member = await repo.get(_subject.tenant_id, member_id)
     if member is None:
         raise HTTPException(status_code=404, detail="Member not found")
     return OrgMemberView.model_validate(member)
@@ -644,13 +686,38 @@ async def update_member(
 ) -> OrgMemberView:
     """Update an org member (admin only)."""
     repo = OrgMemberRepository(session)
-    member = await repo.get(DEFAULT_TENANT_ID, member_id)
+    member = await repo.get(subject.tenant_id, member_id)
     if member is None:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    # TODO: Add permission checks - can current user manage this member?
+    # Enforce RBAC: can current user manage this member's role?
+    current = await _get_current_org_member(subject, session)
+    if current is not None:
+        from app.auth.admin_rbac import can_manage_member
+
+        target_role = body.admin_role if body.admin_role is not None else member.admin_role
+        # can_manage_member checks hierarchy; we also check that updater can invite the target role
+        if not can_manage_member(current, member):
+            raise HTTPException(status_code=403, detail="Not allowed to manage this member")
+        if body.admin_role is not None and not can_invite_role(current, body.admin_role):
+            raise HTTPException(status_code=403, detail=f"Cannot assign role {body.admin_role}")
     member = await repo.update(member, body)
     await session.commit()
+    try:
+        from app.models.orm import AuditEventType
+        from app.repositories.audit import AuditRepository
+
+        await AuditRepository(session).create(
+            event_type=AuditEventType.TOOL_CALL,
+            outcome="allowed",
+            tenant_id=subject.tenant_id,
+            subject_id=subject.subject_id,
+            subject_type=subject.subject_type,
+            detail={"action": "member_updated", "member_id": str(member_id)},
+        )
+        await session.commit()
+    except Exception:
+        pass
     return OrgMemberView.model_validate(member)
 
 
@@ -662,12 +729,32 @@ async def delete_member(
 ) -> None:
     """Remove an org member (admin only)."""
     repo = OrgMemberRepository(session)
-    member = await repo.get(DEFAULT_TENANT_ID, member_id)
+    member = await repo.get(subject.tenant_id, member_id)
     if member is None:
         raise HTTPException(status_code=404, detail="Member not found")
-    # TODO: Add permission checks - can current user remove this member?
+    current = await _get_current_org_member(subject, session)
+    if current is not None:
+        from app.auth.admin_rbac import can_manage_member
+
+        if not can_manage_member(current, member):
+            raise HTTPException(status_code=403, detail="Not allowed to remove this member")
     await repo.delete(member)
     await session.commit()
+    try:
+        from app.models.orm import AuditEventType
+        from app.repositories.audit import AuditRepository
+
+        await AuditRepository(session).create(
+            event_type=AuditEventType.TOOL_CALL,
+            outcome="allowed",
+            tenant_id=subject.tenant_id,
+            subject_id=subject.subject_id,
+            subject_type=subject.subject_type,
+            detail={"action": "member_deleted", "member_id": str(member_id)},
+        )
+        await session.commit()
+    except Exception:
+        pass
 
 
 @router.get("/teams/{team_id}/members", response_model=list[OrgMemberView])
@@ -678,5 +765,5 @@ async def list_team_members(
 ) -> list[OrgMemberView]:
     """List all members of a team."""
     repo = OrgMemberRepository(session)
-    members = await repo.get_by_team(DEFAULT_TENANT_ID, team_id)
+    members = await repo.get_by_team(_subject.tenant_id, team_id)
     return [OrgMemberView.model_validate(m) for m in members]

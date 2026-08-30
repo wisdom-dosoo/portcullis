@@ -202,10 +202,37 @@ async def verify_jwt(
         scope_str = payload.get("scope", "")
         scopes = frozenset(scope_str.split()) if scope_str else frozenset()
 
+        # Tenant claim mapping for multi-tenant OIDC (open source: no billing, but org isolation)
+        # Supports: tenant_id, tenantId, org_id, orgId, tid, and namespaced claim
+        tenant_claim_keys = [
+            "tenant_id",
+            "tenantId",
+            "org_id",
+            "orgId",
+            "tid",
+            "https://portcullis/tenant",
+            "https://portcullis.io/tenant",
+            settings.jwt_audience + "/tenant" if settings.jwt_audience else None,
+        ]
+        tenant_id = DEFAULT_TENANT_ID
+        for key in tenant_claim_keys:
+            if not key:
+                continue
+            raw_tid = payload.get(key)
+            if raw_tid:
+                try:
+                    import uuid as _uuid
+
+                    tenant_id = _uuid.UUID(str(raw_tid))
+                    break
+                except Exception:
+                    # Invalid UUID in claim — fall through to default
+                    continue
+
         return Subject(
             subject_id=sub,
             subject_type=SubjectType.OAUTH_SUBJECT,
-            tenant_id=DEFAULT_TENANT_ID,
+            tenant_id=tenant_id,
             scopes=scopes,
         )
     except ValueError as exc:
