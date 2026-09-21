@@ -187,8 +187,11 @@ redisExternal:
   sentinelHosts: ""
   useSSL: false
 
-# Secrets (should be provided via external secret management)
+# Secrets (should be provided via external secret management in production)
+# Option 1: Set values directly (NOT recommended for production — visible in Helm release history)
+# Option 2: Set secrets.existingSecret to the name of a pre-existing Kubernetes Secret
 secrets:
+  existingSecret: ""  # Name of an existing Secret to reference (keys must match below)
   apiKeyPepper: ""
   jwtJwksUrl: ""
   jwtIssuer: ""

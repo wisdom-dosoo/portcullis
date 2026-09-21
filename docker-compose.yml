@@ -1,0 +1,72 @@
+# Root-level docker-compose for local development.
+# Brings up Postgres + Redis infrastructure, then the API server.
+#
+# Usage:
+#   docker compose up --build           # start everything
+#   docker compose up -d postgres redis # infrastructure only (for local uvicorn)
+#   docker compose down -v              # tear down and wipe volumes
+
+name: portcullis-dev
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: portcullis
+      POSTGRES_PASSWORD: portcullis
+      POSTGRES_DB: portcullis
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portcullis -d portcullis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  portcullis:
+    build:
+      context: ./api
+      dockerfile: deploy/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://portcullis:portcullis@postgres:5432/portcullis
+      REDIS_URL: redis://redis:6379/0
+      API_KEY_PEPPER: ${API_KEY_PEPPER:-development-only-change-me}
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+volumes:
+  pgdata:

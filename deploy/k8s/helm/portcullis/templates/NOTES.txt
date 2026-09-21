@@ -4,7 +4,7 @@ Thank you for installing Portcullis!
 
 ### 1. Configure Secrets
 
-Create a secret with your production values:
+**Option A (recommended for production)**: Reference an existing Kubernetes Secret:
 
 ```bash
 kubectl create secret generic portcullis-secrets \
@@ -15,6 +15,11 @@ kubectl create secret generic portcullis-secrets \
   --from-literal=JWT_AUDIENCE="portcullis" \
   --from-literal=SSO_OIDC_CLIENT_SECRET="your-oidc-client-secret"
 ```
+
+Then set `secrets.existingSecret=portcullis-secrets` in your values.
+
+**Option B (development only)**: Set values directly in `values.yaml` under `secrets.*`.
+WARNING: These values appear in Helm release history and should NOT be used in production.
 
 ### 2. Configure External Services
 

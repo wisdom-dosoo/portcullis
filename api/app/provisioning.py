@@ -34,6 +34,7 @@ from app.models.orm import (
 from app.models.schemas import OrgMemberCreate
 from app.repositories.audit import AuditRepository
 from app.repositories.org_members import OrgMemberRepository
+from app.repositories.users import UserRepository
 
 
 class ProvisioningError(ValueError):
@@ -104,8 +105,6 @@ class ProvisioningService:
 
         # Enforce 2-organization limit for platform admins (live production guard)
         if issuer_id is not None:
-            from app.repositories.users import UserRepository
-
             repo = UserRepository(session)
             issuer = await repo.get_by_id(await _resolve_default_tenant_id(session), issuer_id)
             # Fallback: try lookup by id without tenant scoping if not found in default
@@ -159,8 +158,8 @@ class ProvisioningService:
                 # Non-fatal — tenant provisioning should succeed even if join row fails
                 pass
 
-        users = UserRepository(session)
-        owner = await users.create(
+        users_repo = UserRepository(session)
+        owner = await users_repo.create(
             tenant_id=tenant.id,
             email=owner_email,
             password_hash=password_hash,

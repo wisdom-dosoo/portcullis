@@ -668,29 +668,8 @@ class ScimGroup(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    meta: dict | None = None
+    meta: dict[str, Any] | None = None
     created: datetime | None = None
-    lastModified: datetime | None = None
-    location: str | None = None
-    version: str | None = None
-    master: bool | None = None
-
-    name: str
-    description: str | None = None
-
-    path: str | None = None
-    privilege: str | None = None
-    origin: str | None = None
-
-    literalExpression: str | None = None
-    filter: str | None = None
-
-    members: list[dict[str, str]] | None = None
-
-    schemas: list[str] = Field(
-        default_factory=lambda: ["urn:ietf:params:scim:schemas:core:1.1:Group"]
-    )
-    classified: bool | None = None
     lastModified: datetime | None = None
     location: str | None = None
     version: str | None = None

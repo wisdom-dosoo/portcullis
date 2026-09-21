@@ -17,7 +17,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.auth.api_keys import issue_key
-from app.gateway.registry import DEFAULT_TENANT_ID
+from app.constants import DEFAULT_TENANT_ID
 from app.gateway.session import SessionStore
 from app.main import create_app
 from app.models.db import create_session_factory

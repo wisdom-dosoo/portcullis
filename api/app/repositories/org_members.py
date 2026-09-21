@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import OrgMember, OrgMemberRole
+from app.models.schemas import OrgMemberCreate, OrgMemberUpdate
 
 
 class OrgMemberRepository:
@@ -30,8 +31,6 @@ class OrgMemberRepository:
 
     async def list(self, tenant_id: UUID) -> list[OrgMember]:
         """Return all org member records for the given tenant."""
-        from app.models.orm import OrgMember
-
         result = await self._session.scalars(
             select(OrgMember).where(OrgMember.tenant_id == tenant_id)
         )
@@ -39,8 +38,6 @@ class OrgMemberRepository:
 
     async def get(self, tenant_id: UUID, member_id: UUID) -> OrgMember | None:
         """Return the org member with the given ID scoped to tenant, or None if not found."""
-        from app.models.orm import OrgMember
-
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.id == member_id,
@@ -51,8 +48,6 @@ class OrgMemberRepository:
 
     async def get_by_subject(self, tenant_id: UUID, user_subject: str) -> OrgMember | None:
         """Return the org member with the given user_subject scoped to tenant."""
-        from app.models.orm import OrgMember
-
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.tenant_id == tenant_id,
@@ -63,8 +58,6 @@ class OrgMemberRepository:
 
     async def get_by_team(self, tenant_id: UUID, team_id: UUID) -> list[OrgMember]:
         """Return all org members belonging to a specific team."""
-        from app.models.orm import OrgMember
-
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.tenant_id == tenant_id,
@@ -87,8 +80,6 @@ class OrgMemberRepository:
 
     async def list_by_role(self, tenant_id: UUID, role: str) -> list[OrgMember]:
         """Return all org members with a specific role."""
-        from app.models.orm import OrgMember
-
         result = await self._session.scalars(
             select(OrgMember).where(
                 OrgMember.tenant_id == tenant_id,
@@ -99,8 +90,6 @@ class OrgMemberRepository:
 
     async def count(self, tenant_id: UUID) -> int:
         """Count all org member records for the given tenant."""
-        from app.models.orm import OrgMember
-
         result = await self._session.scalar(
             select(func.count(OrgMember.id)).where(OrgMember.tenant_id == tenant_id)
         )
@@ -108,10 +97,6 @@ class OrgMemberRepository:
 
     async def count_by_role(self, tenant_id: UUID, role: str) -> int:
         """Count org members with a specific role."""
-        from sqlalchemy import func
-
-        from app.models.orm import OrgMember
-
         result = await self._session.scalar(
             select(func.count(OrgMember.id)).where(
                 OrgMember.tenant_id == tenant_id,

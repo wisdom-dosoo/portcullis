@@ -12,9 +12,8 @@ from app.config import Settings
 from app.models.orm import ServerAuthMode
 from app.models.schemas import ServerCreate, ServerUpdate, ServerView
 from app.repositories.servers import ServerRepository
+from app.constants import DEFAULT_TENANT_ID
 from app.security.upstreams import validate_upstream_url
-
-DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 class SlugConflictError(ValueError):

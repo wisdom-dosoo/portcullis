@@ -162,77 +162,135 @@ A denied request (RBAC or rate limit) **never reaches the upstream** — it is r
 
 ```
 portcullis/
-├ app/
-│   ├── main.py                     # FastAPI app factory, router mounting, lifespan
-│   ├── config.py                   # Pydantic Settings (env-driven configuration)
+├ api/                                 # Python backend (FastAPI + SQLAlchemy)
+│   ├── app/
+│   │   ├── main.py                    # FastAPI app factory, router mounting, lifespan
+│   │   ├── config.py                  # Pydantic Settings (env-driven, 50+ vars)
+│   │   ├── constants.py               # Process-wide constants (DEFAULT_TENANT_ID)
+│   │   ├── runtime.py                 # Process-wide I/O singletons (DB, Redis, HTTP)
+│   │   ├── cli.py                     # Management CLI (admin-key, bootstrap, provision)
+│   │   ├── provisioning.py            # Atomic tenant provisioning service
+│   │   ├── usage.py                   # Best-effort usage metering
+│   │   │
+│   │   ├── api/                       # REST endpoint layer (16 modules)
+│   │   │   ├── auth.py                # Registration, login, invite, SSO link
+│   │   │   ├── sso.py                 # SSO admin/config + OIDC callback
+│   │   │   ├── servers.py             # Upstream MCP server CRUD
+│   │   │   ├── api_keys.py            # API key issuance/revocation
+│   │   │   ├── roles.py               # Roles, bindings, permissions
+│   │   │   ├── rate_limits.py         # Rate limit policy CRUD
+│   │   │   ├── audit.py               # Audit log query + SOC 2 export
+│   │   │   ├── platform.py            # Platform admin /me, user list
+│   │   │   ├── scim.py                # SCIM 1.1/1.2 provisioning
+│   │   │   ├── tenants.py             # Admin tenant provisioning
+│   │   │   ├── licenses.py            # License admin + org endpoints
+│   │   │   ├── usage.py               # Usage totals
+│   │   │   ├── telemetry.py           # Opt-in telemetry status
+│   │   │   └── health.py              # /healthz liveness
+│   │   │
+│   │   ├── auth/                      # Authentication/authorization (15 modules)
+│   │   │   ├── jwt_validator.py       # JWKS fetch/cache + JWT verify
+│   │   │   ├── api_keys.py            # Key hashing (argon2id), issuance, lookup
+│   │   │   ├── rbac.py                # Default-deny role/permission engine
+│   │   │   ├── admin_rbac.py          # Platform admin RBAC
+│   │   │   ├── dependencies.py        # Auth Depends() for proxy path
+│   │   │   ├── sso.py                 # OIDC authorization-code flow
+│   │   │   ├── tool_filter.py         # RBAC tool filtering for tools/list
+│   │   │   ├── rotate.py              # API key rotation
+│   │   │   ├── invites.py             # Invite code minting/verification
+│   │   │   ├── licenses.py            # HMAC-signed license keys
+│   │   │   └── org_bootstrap.py       # Default roles/membership bootstrap
+│   │   │
+│   │   ├── gateway/                   # MCP proxy core (10 modules)
+│   │   │   ├── router.py              # /mcp/{slug} JSON-RPC routing (817 lines)
+│   │   │   ├── proxy.py               # Streamable HTTP forwarding
+│   │   │   ├── registry.py            # Server registry + Redis cache
+│   │   │   ├── session.py             # Mcp-Session-Id ↔ upstream mapping
+│   │   │   ├── health_monitor.py      # Circuit-breaker health checks
+│   │   │   ├── stdio_bridge.py        # stdio → Streamable HTTP bridge adapter
+│   │   │   ├── jsonrpc.py             # JSON-RPC envelope helpers
+│   │   │   ├── headers.py             # Header manipulation
+│   │   │   ├── origin_check.py        # DNS rebinding protection
+│   │   │   └── management_rate_limit.py # Management API rate limiting
+│   │   │
+│   │   ├── limits/                    # Distributed rate limiting
+│   │   │   ├── redis_bucket.py        # Lua token-bucket + sliding-window
+│   │   │   ├── policies.py            # Most-specific-first policy resolution
+│   │   │   └── pre_auth.py            # Pre-auth rate limiting
+│   │   │
+│   │   ├── observability/             # Tracing, metrics, audit
+│   │   │   ├── otel.py                # OpenTelemetry provider setup
+│   │   │   ├── metrics.py             # Prometheus counters/histograms
+│   │   │   ├── audit.py               # Async Postgres audit writer
+│   │   │   └── audit_export.py        # SOC 2 audit log export
+│   │   │
+│   │   ├── models/                    # Data models
+│   │   │   ├── db.py                  # Async engine/session factory
+│   │   │   ├── orm.py                 # SQLAlchemy ORM (18 tables)
+│   │   │   └── schemas.py             # Pydantic request/response (42 models)
+│   │   │
+│   │   ├── repositories/              # Data access layer (14 modules)
+│   │   │   ├── servers.py             # McpServer CRUD
+│   │   │   ├── api_keys.py            # ApiKey CRUD
+│   │   │   ├── rbac.py                # Roles, bindings, permissions
+│   │   │   ├── audit.py               # AuditLog CRUD
+│   │   │   ├── users.py               # User CRUD
+│   │   │   └── ...                    # (10 more repository modules)
+│   │   │
+│   │   ├── email/                     # Pluggable email (console/SMTP/SendGrid/Resend)
+│   │   ├── security/                  # Upstream allow-list validation
+│   │   ├── telemetry/                 # Opt-in self-host telemetry
+│   │   ├── plugins/                   # Dynamic plugin loader
+│   │   └── audit/                     # Hash-chain tamper detection
 │   │
-│   ├── gateway/
-│   │   ├── registry.py             # Upstream server CRUD + health checks + Redis cache
-│   │   ├── proxy.py                # JSON-RPC forwarding over Streamable HTTP
-│   │   ├── router.py               # Routes /mcp/{slug} to the right upstream
-│   │   └── session.py              # Mcp-Session-Id ↔ upstream mapping (Redis)
+│   ├── tests/                         # Test suite (~46 files)
+│   │   ├── unit/                      # RBAC, rate limiter, JWT, auth, CLI, etc.
+│   │   ├── integration/               # testcontainers: real Postgres + Redis
+│   │   ├── contract/                  # JSON-RPC error contract validation
+│   │   ├── e2e/                       # Full operator journey
+│   │   └── conftest.py                # Shared fixtures
 │   │
-│   ├── auth/
-│   │   ├── jwt_validator.py        # JWKS fetch/cache + JWT verification (OAuth 2.1 RS mode)
-│   │   ├── api_keys.py             # API key hashing, issuance, revocation
-│   │   ├── rbac.py                 # Role/permission resolution and matching engine
-│   │   └── dependencies.py         # FastAPI Depends() wiring auth into routes
+│   ├── deploy/
+│   │   ├── Dockerfile
+│   │   └── docker-compose.yml
 │   │
-│   ├── limits/
-│   │   ├── redis_bucket.py         # Token-bucket / sliding-window Lua scripts
-│   │   └── policies.py             # Resolves effective limit per subject/server/tool
-│   │
-│   ├── observability/
-│   │   ├── otel.py                 # Tracer/provider setup, span helpers
-│   │   ├── metrics.py              # Prometheus counters/histograms, /metrics route
-│   │   └── audit.py                # Async audit log writer
-│   │
-│   ├── models/
-│   │   ├── db.py                   # SQLAlchemy async engine/session factory
-│   │   ├── orm.py                  # ORM models (tenants, servers, roles, …)
-│   │   └── schemas.py              # Pydantic request/response models
-│   │
-│   └── api/
-│       ├── servers.py               # /v1/servers routes
-│       ├── api_keys.py              # /v1/api-keys routes
-│       ├── roles.py                 # /v1/roles, /v1/roles/{id}/bindings, /permissions
-│       ├── audit.py                 # /v1/audit query routes
-│       └── health.py                # /healthz
-├
-├ alembic/
-│   ├── env.py
-│   └── versions/
+│   ├── alembic/                       # Database migrations
+│   ├── pyproject.toml
+│   └── alembic.ini
 │
-├ tests/
-│   ├── unit/
-│   │   ├── test_rbac.py
-│   │   ├── test_rate_limiter.py     # hypothesis property-based tests
-│   │   └── test_jwt_validator.py
-│   ├── integration/
-│   │   ├── test_proxy_flow.py       # testcontainers: real Postgres + Redis + mock upstream
-│   │   └── test_session_routing.py
-│   └── conftest.py
+├ web/                                 # Next.js 16.3 admin dashboard
+│   ├── src/app/                       # 75+ pages across 4 UI contexts
+│   │   ├── login/                     # Auth (email/password, API key, SSO)
+│   │   ├── dashboard/                 # Org admin (20+ pages)
+│   │   ├── admin/                     # Platform admin (14+ pages)
+│   │   └── developer/                 # Developer portal (8+ pages)
+│   ├── src/lib/                       # auth, axios, utils
+│   ├── middleware.ts                   # Auth guard + security headers
+│   └── package.json
 │
 ├ deploy/
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── railway.toml
+│   └── k8s/helm/portcullis/           # Production Helm chart (15 templates)
+│       ├── templates/
+│       │   ├── deployment.yaml
+│       │   ├── service.yaml
+│       │   ├── ingress.yaml
+│       │   ├── hpa.yaml
+│       │   ├── networkpolicy.yaml
+│       │   ├── servicemonitor.yaml
+│       │   ├── prometheusrules.yaml   # 26 alert rules
+│       │   └── ...
+│       └── values.yaml
 │
+├ docker-compose.yml                   # Root-level dev environment
+├ .github/workflows/
+│   ├── ci.yml                         # Lint → Test → Security → Build
+│   └── release.yml                    # Tag-triggered image publish
 ├ docs/
-│   ├── architecture.md
-│   └── diagrams/
-│
-├ .github/
-│   └── workflows/
-│       ├── ci.yml
-│       └── release.yml
-│
 ├ .env.example
-├ pyproject.toml
-├ alembic.ini
-├ LICENSE
+├ GOVERNANCE.md
 ├ SECURITY.md
 ├ CONTRIBUTING.md
+├ LICENSE
 └ README.md
 ```
 
@@ -663,12 +721,16 @@ These are **targets to validate with load testing once implemented**, not measur
 
 ## Roadmap
 
-- [ ] v0.1 — Registry, proxy, API-key auth, RBAC, Redis rate limiting (MVP)
-- [ ] v0.2 — OAuth 2.1/JWKS auth, OpenTelemetry tracing, Prometheus metrics
-- [ ] v0.3 — Admin UI (read-only dashboard for servers/roles/audit)
-- [ ] v0.4 — stdio-bridge adapter for local-only upstreams
-- [ ] v0.5 — Multi-tenant SaaS mode (hosted, managed Portcullis)
-- [ ] v1.0 — Helm chart, SCIM for role provisioning, SOC 2-oriented audit export
+- [x] v0.1 — Registry, proxy, API-key auth, RBAC, Redis rate limiting (MVP)
+- [x] v0.2 — OAuth 2.1/JWKS auth, OpenTelemetry tracing, Prometheus metrics
+- [x] v0.3 — Admin UI (full dashboard with servers, roles, audit, playground, billing)
+- [x] v0.4 — stdio-bridge adapter for local-only upstreams (`app.gateway.stdio_bridge`)
+- [x] v0.5 — Multi-tenant SaaS mode (SCIM, SSO, license management, seat enforcement)
+- [x] v1.0 — Helm chart (26 alert rules), SCIM for role provisioning, SOC 2 audit export
+- [ ] v1.1 — Frontend test suite (Playwright E2E + Vitest unit tests)
+- [ ] v1.2 — Secrets rotation documentation + external secret operator guide
+- [ ] v1.3 — cert-manager integration for Helm chart TLS
+- [ ] v2.0 — Admin UI for audit log browsing and compliance report generation
 
 ---
 

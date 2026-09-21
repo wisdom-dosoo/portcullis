@@ -19,6 +19,7 @@ import hashlib
 import re
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import status as http_status
@@ -169,8 +170,8 @@ async def scim_list_users(
     text: str | None = Query(default=None, description="Search text"),
     sortBy: str | None = Query(default=None, description="Sort by attribute"),
     sortOrder: str | None = Query(default="normal", description="Sort order (normal|reverse)"),
-    session: AsyncSession = Depends(get_session),
-    subject: Subject = Depends(authenticated_subject),  # tenant isolation via subject
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    subject: Subject = Depends(authenticated_subject),  # tenant isolation via subject  # noqa: B008
 ) -> list[ScimUser]:
     """List users with optional filtering and searching (tenant-scoped)."""
     tenant_id = subject.tenant_id
@@ -215,8 +216,8 @@ async def scim_list_users(
 @router.post("/Users", response_model=ScimUser, summary="Create User")
 async def scim_create_user(
     scim_user: ScimUser,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> ScimUser:
     """Create a new user via SCIM."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -286,8 +287,8 @@ async def scim_create_user(
 @router.get("/Users/{scim_id}", response_model=ScimUser, summary="Get User by ID")
 async def scim_get_user(
     scim_id: str,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> ScimUser:
     """Get a user by SCIM ID."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -328,8 +329,8 @@ async def scim_get_user(
 async def scim_update_user(
     scim_id: str,
     scim_user: ScimUser,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> ScimUser:
     """Update a user via SCIM."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -376,8 +377,8 @@ async def scim_update_user(
 )
 async def scim_delete_user(
     scim_id: str,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> None:
     """Delete a user via SCIM."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -413,8 +414,8 @@ async def scim_delete_user(
 async def scim_list_groups(
     filter: str | None = Query(default=None, description="SCIM filter expression"),
     text: str | None = Query(default=None, description="Search text"),
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> list[ScimGroup]:
     """List groups with optional filtering."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -453,8 +454,8 @@ async def scim_list_groups(
 @router.post("/Groups", response_model=ScimGroup, summary="Create Group")
 async def scim_create_group(
     scim_group: ScimGroup,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> ScimGroup:
     """Create a new group via SCIM."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -513,8 +514,8 @@ async def scim_create_group(
 @router.get("/Groups/{scim_id}", response_model=ScimGroup, summary="Get Group by ID")
 async def scim_get_group(
     scim_id: str,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> ScimGroup:
     """Get a group by SCIM ID."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -547,8 +548,8 @@ async def scim_get_group(
 async def scim_update_group(
     scim_id: str,
     scim_group: ScimGroup,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> ScimGroup:
     """Update a group via SCIM."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]
@@ -595,8 +596,8 @@ async def scim_update_group(
 )
 async def scim_delete_group(
     scim_id: str,
-    request: Request = Depends(get_runtime),
-    session: AsyncSession = Depends(get_session),
+    request: Request = Depends(get_runtime),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> None:
     """Delete a group via SCIM."""
     runtime = request.app.state.runtime  # type: ignore[attr-defined]

@@ -6,7 +6,7 @@ import fnmatch
 from dataclasses import dataclass
 
 from app.auth.rbac import _pattern_specificity
-from app.models.orm import RateLimitAlgorithm, RateLimitPolicy
+from app.models.orm import RateLimitAlgorithm, RateLimitPolicy, SubjectType
 
 UNIT_SECONDS: dict[str, int] = {
     "second": 1,

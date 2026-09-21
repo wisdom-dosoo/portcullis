@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "echo 'No test framework configured yet — see CONTRIBUTING.md'",
     "api:generate": "node --input-type=module -e \"import { generate } from './node_modules/orval/dist/index.mjs'; await generate('./orval.config.ts');\""
   },
   "dependencies": {

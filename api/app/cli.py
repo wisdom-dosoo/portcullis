@@ -7,7 +7,7 @@ import asyncio
 
 from app.auth.api_keys import issue_key
 from app.config import get_settings
-from app.gateway.registry import DEFAULT_TENANT_ID
+from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import AuditEventType, LicensePlan, SubjectType
 from app.models.schemas import TenantProvisionRequest
 from app.provisioning import ProvisioningError, ProvisioningService
@@ -61,6 +61,15 @@ def main() -> None:
         "--expires-in-days", type=int, default=365, help="License term in days"
     )
 
+    bridge_parser = subparsers.add_parser(
+        "stdio-bridge", help="Run a stdio-to-Streamable-HTTP bridge"
+    )
+    bridge_parser.add_argument(
+        "--command", required=True, nargs="+", help="Command to spawn the stdio MCP server"
+    )
+    bridge_parser.add_argument("--port", type=int, default=9090, help="HTTP port (default: 9090)")
+    bridge_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+
     telemetry_parser = subparsers.add_parser("telemetry", help="Self-host telemetry status")
     telemetry_subparsers = telemetry_parser.add_subparsers(dest="telemetry_command")
     telemetry_subparsers.add_parser(
@@ -75,6 +84,8 @@ def main() -> None:
         asyncio.run(_bootstrap_admin(args.email))
     elif args.command == "provision-tenant":
         asyncio.run(_provision_tenant(args))
+    elif args.command == "stdio-bridge":
+        _run_stdio_bridge(args)
     elif args.command == "telemetry" and args.telemetry_command == "status":
         _telemetry_status()
     else:
@@ -191,6 +202,15 @@ async def _provision_tenant(args: argparse.Namespace) -> None:
             print(f"  owner_password: {result.owner_password}  # generated — copy it now")
     finally:
         await runtime.close()
+
+
+def _run_stdio_bridge(args: argparse.Namespace) -> None:
+    """Launch the stdio-to-Streamable-HTTP bridge."""
+    from app.gateway.stdio_bridge import main as bridge_main
+    import sys
+
+    sys.argv = ["stdio-bridge", "--command", *args.command, "--port", str(args.port), "--host", args.host]
+    bridge_main()
 
 
 def _telemetry_status() -> None:

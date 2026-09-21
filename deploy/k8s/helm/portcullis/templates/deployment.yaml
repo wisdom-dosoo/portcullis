@@ -43,8 +43,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "portcullis.fullname" . }}-config
+            {{- if .Values.secrets.existingSecret }}
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+            {{- else }}
             - secretRef:
                 name: {{ include "portcullis.fullname" . }}-secrets
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.healthChecks.livenessProbe | nindent 12 }}
           readinessProbe:

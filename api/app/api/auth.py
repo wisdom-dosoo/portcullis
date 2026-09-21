@@ -5,12 +5,16 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, get_settings_dep
+
+logger = structlog.get_logger(__name__)
 from app.auth.admin_rbac import (
     AdminAction,
+    can_access_team_scope,
     can_invite_role,
     has_permission,
 )
@@ -22,7 +26,7 @@ from app.auth.org_bootstrap import bind_owner_to_org_owner, create_default_roles
 from app.auth.passwords import PasswordService
 from app.auth.subject import IssuedKey, Subject
 from app.config import Settings
-from app.gateway.registry import DEFAULT_TENANT_ID
+from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import (
     OrgMember,
     OrgRole,
@@ -424,8 +428,6 @@ async def create_team(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TeamView:
     """Create a new team (admin only)."""
-    # Check admin RBAC permission
-    org_member_repo = OrgMemberRepository(session)
     # Get the current user's org member info
     from app.auth.subject import SubjectType
 
@@ -513,8 +515,8 @@ async def update_team(
             detail={"action": "team_updated", "team_id": str(team_id)},
         )
         await session.commit()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("audit.team_updated_failed", team_id=str(team_id), error=str(exc))
     return await _team_view(repo, team)
 
 
@@ -549,8 +551,8 @@ async def delete_team(
             detail={"action": "team_deleted", "team_id": str(team_id)},
         )
         await session.commit()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("audit.team_deleted_failed", team_id=str(team_id), error=str(exc))
 
 
 @router.post("/teams/{team_id}/servers/{server_id}", status_code=204)
@@ -566,9 +568,7 @@ async def add_server_to_team(
     team = await repo.get(subject.tenant_id, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
-    from app.repositories.servers import ServerRepository
-
-    server_repo = ServerRepository(session)
+    from app.repositories.servers import ServerRepository  # noqa: F401 - keep import for type hints
     # Actually need to get by ID
     from sqlalchemy import select
 
@@ -695,7 +695,6 @@ async def update_member(
     if current is not None:
         from app.auth.admin_rbac import can_manage_member
 
-        target_role = body.admin_role if body.admin_role is not None else member.admin_role
         # can_manage_member checks hierarchy; we also check that updater can invite the target role
         if not can_manage_member(current, member):
             raise HTTPException(status_code=403, detail="Not allowed to manage this member")
@@ -716,8 +715,8 @@ async def update_member(
             detail={"action": "member_updated", "member_id": str(member_id)},
         )
         await session.commit()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("audit.member_updated_failed", member_id=str(member_id), error=str(exc))
     return OrgMemberView.model_validate(member)
 
 
@@ -753,8 +752,8 @@ async def delete_member(
             detail={"action": "member_deleted", "member_id": str(member_id)},
         )
         await session.commit()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("audit.member_deleted_failed", member_id=str(member_id), error=str(exc))
 
 
 @router.get("/teams/{team_id}/members", response_model=list[OrgMemberView])

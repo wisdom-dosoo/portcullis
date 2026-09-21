@@ -86,7 +86,10 @@ class TestProvisionTenant:
             patch("app.provisioning.uuid4", return_value=TENANT_ID),
             patch(
                 "app.provisioning.UserRepository",
-                return_value=MagicMock(create=AsyncMock(return_value=owner)),
+                return_value=MagicMock(
+                    create=AsyncMock(return_value=owner),
+                    get_by_id=AsyncMock(return_value=None),
+                ),
             ),
             patch(
                 "app.provisioning.OrgMemberRepository",
@@ -237,7 +240,10 @@ class TestProvisionTenant:
             patch("app.provisioning.uuid4", return_value=TENANT_ID),
             patch(
                 "app.provisioning.UserRepository",
-                return_value=MagicMock(create=AsyncMock(return_value=owner)),
+                return_value=MagicMock(
+                    create=AsyncMock(return_value=owner),
+                    get_by_id=AsyncMock(return_value=None),
+                ),
             ),
             patch(
                 "app.provisioning.OrgMemberRepository",

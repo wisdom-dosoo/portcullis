@@ -23,8 +23,6 @@ from app.models.schemas import (
 from app.repositories.api_keys import ApiKeyRepository
 from app.repositories.rbac import RbacRepository
 
-DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
-
 router = APIRouter(prefix="/v1/roles", tags=["roles"])
 
 
