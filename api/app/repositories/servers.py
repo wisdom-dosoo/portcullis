@@ -31,6 +31,8 @@ class ServerRepository:
             ssl_cert=data.ssl_cert,
             ssl_key=data.ssl_key,
             health_check_path=data.health_check_path,
+            bridge_command=data.bridge_command,
+            bridge_port=data.bridge_port,
             status=ServerStatus.ACTIVE,
         )
         self._session.add(server)
@@ -83,6 +85,10 @@ class ServerRepository:
             server.ssl_key = data.ssl_key
         if data.health_check_path is not None:
             server.health_check_path = data.health_check_path
+        if data.bridge_command is not None:
+            server.bridge_command = data.bridge_command
+        if data.bridge_port is not None:
+            server.bridge_port = data.bridge_port
         if data.status is not None:
             server.status = data.status
         await self._session.flush()

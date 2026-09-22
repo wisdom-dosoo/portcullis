@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.licenses import LicenseEntitlementError, require_license
 from app.config import Settings
-from app.models.orm import ServerAuthMode
+from app.models.orm import ServerAuthMode, ServerTransport
 from app.models.schemas import ServerCreate, ServerUpdate, ServerView
 from app.repositories.servers import ServerRepository
 from app.constants import DEFAULT_TENANT_ID
@@ -45,7 +45,10 @@ class RegistryService:
             self._settings.environment,
         )
 
-        if command.auth_mode == ServerAuthMode.SERVICE_TOKEN and not command.service_token_env_var:
+        if command.transport == ServerTransport.STDIO_BRIDGE:
+            if not command.bridge_command:
+                raise ValueError("bridge_command is required when transport is 'stdio_bridge'")
+        elif command.auth_mode == ServerAuthMode.SERVICE_TOKEN and not command.service_token_env_var:
             raise ValueError("service_token_env_var is required when auth_mode is 'service_token'")
 
         # Enforce license entitlement before allowing a new server registration.

@@ -43,6 +43,7 @@ def _enum_values(enum_type: type[StrEnum]) -> list[str]:
 
 class ServerTransport(StrEnum):
     STREAMABLE_HTTP = "streamable_http"
+    STDIO_BRIDGE = "stdio_bridge"
 
 
 class ServerAuthMode(StrEnum):
@@ -288,6 +289,9 @@ class McpServer(UuidPrimaryKeyMixin, TimestampMixin, Base):
     health_check_path: Mapped[str] = mapped_column(String(500), nullable=False, default="/health")
     consecutive_health_failures: Mapped[int] = mapped_column(nullable=False, default=0)
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # stdio-bridge configuration
+    bridge_command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bridge_port: Mapped[int | None] = mapped_column(nullable=True)
     # Teams that have access to this server
     teams: Mapped[list[Team]] = relationship(
         "Team",

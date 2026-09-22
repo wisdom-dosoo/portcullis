@@ -54,6 +54,8 @@ class ServerCreate(BaseModel):
     ssl_cert: str | None = None
     ssl_key: str | None = None
     health_check_path: str = "/health"
+    bridge_command: str | None = None
+    bridge_port: int | None = None
 
     @field_validator("slug", mode="before")
     @classmethod
@@ -81,6 +83,8 @@ class ServerUpdate(BaseModel):
     ssl_cert: str | None = None
     ssl_key: str | None = None
     health_check_path: str | None = None
+    bridge_command: str | None = None
+    bridge_port: int | None = None
     status: ServerStatus | None = None
 
     @field_validator("slug", mode="before")
@@ -339,6 +343,8 @@ class ServerView(BaseModel):
     health_check_path: str
     consecutive_health_failures: int
     last_health_check_at: datetime | None
+    bridge_command: str | None = None
+    bridge_port: int | None = None
     created_at: datetime
     updated_at: datetime
 

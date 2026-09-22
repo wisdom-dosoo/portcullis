@@ -242,3 +242,17 @@ next-env.d.ts
 
 # Vercel
 .vercel/
+
+# OpenCode
+.opencode/
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+docker-compose.override.yml
+
+# Local env overrides
+*.local
+.env.local

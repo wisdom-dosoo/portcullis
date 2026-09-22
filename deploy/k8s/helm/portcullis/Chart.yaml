@@ -3,14 +3,24 @@ name: portcullis
 description: A self-hosted MCP gateway with authentication, rate limiting, and observability
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "0.8.0"
 keywords:
   - mcp
   - gateway
   - ai
   - proxy
+  - model-context-protocol
 maintainers:
   - name: Portcullis Team
     email: team@portcullis.io
 sources:
   - https://github.com/wisdom-dosoo/portcullis
+dependencies:
+  - name: postgresql
+    version: "16.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

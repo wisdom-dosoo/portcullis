@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Portcullis Web Frontend
 
-## Getting Started
+Next.js 16.3 admin dashboard for the Portcullis MCP gateway.
 
-First, run the development server:
+## Prerequisites
+
+- Node.js 20+
+- npm or pnpm
+
+## Setup
 
 ```bash
+# Install dependencies
+npm install
+
+# Copy environment variables
+cp .env.example .env.local
+
+# Start dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app runs on `http://localhost:3000` and proxies API requests to `NEXT_PUBLIC_API_URL` (default: `http://localhost:8080`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8080` | Base URL of the Portcullis API backend |
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Next.js dev server |
+| `npm run build` | Production build |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run api:generate` | Regenerate API client from OpenAPI spec |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+web/
+├ src/
+│   ├── app/           # Page routes (App Router)
+│   │   ├── login/     # Auth (email/password, API key, SSO)
+│   │   ├── dashboard/ # Org admin (20+ pages)
+│   │   ├── admin/     # Platform admin (14+ pages)
+│   │   └── developer/ # Developer portal (8+ pages)
+│   ├── lib/           # Shared utilities (auth, axios, utils)
+│   └── providers/     # React context providers
+├ middleware.ts         # Auth guard + security headers
+├ openapi.json         # API spec for code generation
+└ orval.config.ts      # Orval config for API client generation
+```
 
-## Deploy on Vercel
+## API Client Generation
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The API client is auto-generated from the backend's OpenAPI spec using [Orval](https://orval.dev/):
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Start the backend first, then:
+npm run api:generate
+```
+
+## Architecture
+
+- **Auth**: Dual-write token to localStorage + cookie. Middleware reads cookie for route protection. CSRF token set on login.
+- **Admin guard**: `app/admin/layout.tsx` calls `GET /admin/platform/me` and redirects non-admins.
+- **Security headers**: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy set in middleware.

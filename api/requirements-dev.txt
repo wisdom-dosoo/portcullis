@@ -1,7 +1,4 @@
-# Pinned runtime lockfile for reproducible builds.
-# Development dependencies are in requirements-dev.txt.
-
-# Runtime
+# Runtime dependencies — mirrors pyproject.toml [project.dependencies]
 alembic==1.18.5
 argon2-cffi==25.1.0
 asyncpg==0.31.0
@@ -20,3 +17,16 @@ redis[hiredis]==8.1.0
 sqlalchemy[asyncio]==2.0.51
 structlog==26.1.0
 uvicorn[standard]==0.52.1
+
+# Dev and testing — install with: pip install -r requirements-dev.txt
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==0.25.3
+pytest-cov==7.1.0
+hypothesis==6.165.0
+testcontainers[postgres,redis]==4.15.0
+ruff==0.16.1
+mypy==2.3.0
+pip-audit>=2.7
+locust==2.46.3
+pre-commit>=4.0

@@ -16,6 +16,7 @@ from app.auth.dependencies import admin_subject
 from app.auth.subject import Subject
 from app.models.orm import AuditEventType
 from app.models.schemas import AuditLogView
+from app.observability.audit_export import AuditExportFilters, AuditExportService
 from app.repositories.audit import AuditRepository
 
 router = APIRouter(prefix="/v1/audit", tags=["audit"])
@@ -95,6 +96,46 @@ async def export_audit_logs(
     if format == "jsonl":
         return _export_jsonl(logs)
     return _export_csv(logs)
+
+
+@router.get("/soc2")
+async def export_soc2_report(
+    subject: Annotated[Subject, Depends(admin_subject)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    start_date: Annotated[datetime | None, Query()] = None,
+    end_date: Annotated[datetime | None, Query()] = None,
+    subject_id: Annotated[str | None, Query()] = None,
+    server_slug: Annotated[str | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=50000)] = 10000,
+) -> Response:
+    """Export a SOC 2 compliance report mapping audit events to Trust Services Criteria.
+
+    Returns a structured JSON report with events mapped to:
+    - CC6.1 (Logical Access): RBAC denials and auth failures
+    - CC6.6 (System Boundaries): Rate limit rejections
+    - CC7.2 (Monitoring): All events logged
+    - CC7.3 (Anomaly Detection): Error events
+    """
+    export_service = AuditExportService(session)
+    filters = AuditExportFilters(
+        start_date=start_date,
+        end_date=end_date,
+        tenant_id=subject.tenant_id,
+        subject_id=subject_id,
+        status=status,
+        limit=limit,
+    )
+    report = await export_service.export_soc2_report(filters)
+
+    import json
+
+    filename = f"soc2_report_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
+    return Response(
+        content=json.dumps(report, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 def _export_csv(logs: list) -> StreamingResponse:

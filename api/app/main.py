@@ -153,9 +153,14 @@ def create_app() -> FastAPI:
 
     application = FastAPI(
         title="Portcullis",
+        description="A high-performance, multi-tenant MCP gateway with authentication, "
+        "rate limiting, RBAC, and observability.",
         version=__version__,
         lifespan=lifespan,
         default_response_class=JSONResponse,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
     )
 
     settings = get_settings()
