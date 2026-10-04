@@ -1,0 +1,17 @@
+# P0: keep secrets and build noise out of the Docker context.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+htmlcov/
+.coverage
+coverage.xml
+tests/
+alembic/versions/__pycache__/
+.env
+.env.local
+openapi_new.json
+openapi.json

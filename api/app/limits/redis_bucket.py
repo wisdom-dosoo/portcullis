@@ -40,7 +40,7 @@ if tokens >= cost then
 end
 
 local ttl = math.ceil(capacity / rate) + 1
-redis.call("HMSET", key, "tokens", tokens, "last_refill", now)
+redis.call("HSET", key, "tokens", tokens, "last_refill", now)
 redis.call("EXPIRE", key, ttl)
 
 local reset_after = (capacity - tokens) / rate
@@ -98,14 +98,27 @@ class RateLimitResult:
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_segment(value: str, max_len: int = 200) -> str:
+    """Sanitize one Redis key segment (P2: bound cardinality/key growth).
+
+    OAuth `sub` is IdP-controlled and may contain `:` (key separator);
+    `tool_or_method` is attacker-controlled (`params.name/uri`, unbounded).
+    """
+    cleaned = (value or "").replace(":", "_").replace("\n", "_").replace("\r", "_")
+    return cleaned[:max_len] or "unknown"
+
+
 def build_key(
     tenant_id: UUID,
     subject_id: str,
     server_slug: str,
     tool_or_method: str,
 ) -> str:
-    """Return the canonical Redis key for a rate-limit check."""
-    return f"rl:{tenant_id}:{subject_id}:{server_slug}:{tool_or_method}"
+    """Return the canonical Redis key for a rate-limit check (P2: sanitized)."""
+    return (
+        f"rl:{tenant_id}:{_sanitize_segment(subject_id)}"
+        f":{_sanitize_segment(server_slug, 100)}:{_sanitize_segment(tool_or_method)}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +210,29 @@ class RateLimiter:
         tool_or_method: str,
         policy: EffectivePolicy,
     ) -> RateLimitResult:
-        """Dispatch to the correct algorithm based on policy.algorithm.
+        """Dispatch by algorithm, keyed by policy scope (P3: shared globals).
 
-        Raises redis.exceptions.RedisError on backend failure (caller fails closed).
+        Scope mapping: tool → full key; server → tenant/subject/server;
+        subject → tenant/subject; global → tenant/global (+server when the
+        policy names one). Previously every policy used the full per-tool key,
+        so spreading calls over N tools granted N× the limit.
         """
-        key = build_key(tenant_id, subject_id, server_slug, tool_or_method)
+        scope = getattr(policy, "scope", "tool")
+        if scope == "global":
+            key = (
+                f"rl:{tenant_id}:global:{_sanitize_segment(server_slug, 100)}"
+                if server_slug != "management_api"
+                else f"rl:{tenant_id}:global"
+            )
+        elif scope == "subject":
+            key = f"rl:{tenant_id}:{_sanitize_segment(subject_id)}"
+        elif scope == "server":
+            key = (
+                f"rl:{tenant_id}:{_sanitize_segment(subject_id)}"
+                f":{_sanitize_segment(server_slug, 100)}"
+            )
+        else:
+            key = build_key(tenant_id, subject_id, server_slug, tool_or_method)
         if policy.algorithm == RateLimitAlgorithm.TOKEN_BUCKET:
             return await self.check_token_bucket(key, policy)
         return await self.check_sliding_window(key, policy)

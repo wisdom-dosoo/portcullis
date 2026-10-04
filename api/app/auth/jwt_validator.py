@@ -14,15 +14,29 @@ from redis.asyncio import Redis
 
 from app.auth.subject import Subject
 from app.config import Settings
-from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import SubjectType
 
 logger = structlog.get_logger(__name__)
 
-# Redis key prefix for JWKS cache
-_JWKS_CACHE_KEY = "jwks:cache"
-_JWKS_LOCK_KEY = "jwks:lock"
+# Redis key prefix for JWKS cache (P3: per-URL keys — the old single-slot
+# `jwks:cache` thrashed in multi-IdP deployments).
+_JWKS_CACHE_PREFIX = "jwks:cache:"
+_JWKS_LOCK_PREFIX = "jwks:lock:"
 _JWKS_CHANNEL = "jwks:invalidate"
+
+
+def _jwks_key(url: str) -> str:
+    import hashlib as _hashlib
+
+    digest = _hashlib.sha256(url.encode()).hexdigest()[:16]
+    return f"{_JWKS_CACHE_PREFIX}{digest}"
+
+
+def _jwks_lock_key(url: str) -> str:
+    import hashlib as _hashlib
+
+    digest = _hashlib.sha256(url.encode()).hexdigest()[:16]
+    return f"{_JWKS_LOCK_PREFIX}{digest}"
 
 
 class JwksCache:
@@ -63,21 +77,26 @@ class JwksCache:
             async for message in self._pubsub.listen():
                 if message["type"] == "message":
                     logger.debug("jwks.invalidation_received")
-                    # The cache will be refreshed on next get() due to TTL expiration
-                    # or we could proactively delete the key here
-                    await self._redis.delete(_JWKS_CACHE_KEY)
+                    # P3: per-URL keys — clear the whole prefix pattern.
+                    try:
+                        async for key in self._redis.scan_iter(f"{_JWKS_CACHE_PREFIX}*"):
+                            await self._redis.delete(key)
+                    except Exception:  # noqa: BLE001
+                        pass
         except asyncio.CancelledError:
             pass
         except Exception:  # noqa: BLE001
             logger.error("jwks.pubsub_listener_error")
 
     async def get(self, jwks_url: str) -> dict:
-        """Get JWKS from cache or fetch from URL.
+        """Get JWKS from cache or fetch from URL (P3: per-URL keys).
 
         Uses a distributed lock to prevent thundering herd on cache miss.
         """
+        cache_key = _jwks_key(jwks_url)
+        lock_key = _jwks_lock_key(jwks_url)
         # Try to get from cache first
-        cached = await self._redis.get(_JWKS_CACHE_KEY)
+        cached = await self._redis.get(cache_key)
         if cached:
             try:
                 data = json.loads(cached)
@@ -87,12 +106,12 @@ class JwksCache:
                 pass  # Fall through to fetch
 
         # Cache miss or URL changed - acquire lock and fetch
-        lock = self._redis.lock(_JWKS_LOCK_KEY, timeout=10, blocking_timeout=5)
+        lock = self._redis.lock(lock_key, timeout=10, blocking_timeout=5)
         acquired = await lock.acquire()
         try:
             if acquired:
                 # Double-check after acquiring lock
-                cached = await self._redis.get(_JWKS_CACHE_KEY)
+                cached = await self._redis.get(cache_key)
                 if cached:
                     try:
                         data = json.loads(cached)
@@ -105,7 +124,7 @@ class JwksCache:
                 jwks_data = await _fetch_jwks(jwks_url)
                 payload = {"url": jwks_url, "keys": jwks_data}
                 await self._redis.set(
-                    _JWKS_CACHE_KEY,
+                    cache_key,
                     json.dumps(payload),
                     ex=self._ttl_seconds,
                 )
@@ -113,7 +132,7 @@ class JwksCache:
             else:
                 # Could not acquire lock - wait a bit and retry once
                 await asyncio.sleep(0.1)
-                cached = await self._redis.get(_JWKS_CACHE_KEY)
+                cached = await self._redis.get(cache_key)
                 if cached:
                     try:
                         data = json.loads(cached)
@@ -130,25 +149,33 @@ class JwksCache:
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("jwks.lock_release_failed", error=str(exc))
 
-    async def invalidate(self) -> None:
-        """Manually invalidate the cache and publish invalidation event."""
-        await self._redis.delete(_JWKS_CACHE_KEY)
+    async def invalidate(self, jwks_url: str | None = None) -> None:
+        """Invalidate one URL (or all) and publish the invalidation event."""
+        if jwks_url is not None:
+            await self._redis.delete(_jwks_key(jwks_url))
+        else:
+            try:
+                async for key in self._redis.scan_iter(f"{_JWKS_CACHE_PREFIX}*"):
+                    await self._redis.delete(key)
+            except Exception:  # noqa: BLE001
+                pass
         await self._redis.publish(_JWKS_CHANNEL, "invalidate")
 
 
-async def _fetch_jwks(url: str) -> dict:
-    """Fetch the JWKS document from the given URL.
+async def _fetch_jwks(url: str, client: httpx.AsyncClient | None = None) -> dict:
+    """Fetch the JWKS document with a bounded timeout (P3: no hangs).
 
-    Creates a fresh httpx.AsyncClient per call to avoid shared state.
-
-    Raises:
-        ValueError: On any network or HTTP error.
+    Uses the shared runtime client when available; otherwise a fresh client
+    with a 10s timeout (was unbounded — a hanging IdP stalled auth).
     """
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.json()
+        if client is not None:
+            response = await client.get(url, timeout=10.0)
+        else:
+            async with httpx.AsyncClient(timeout=10.0) as fresh:
+                response = await fresh.get(url)
+        response.raise_for_status()
+        return response.json()
     except Exception:  # noqa: BLE001 - convert any failure to a uniform opaque error
         raise ValueError("invalid bearer token")
 
@@ -204,6 +231,8 @@ async def verify_jwt(
 
         # Tenant claim mapping for multi-tenant OIDC (open source: no billing, but org isolation)
         # Supports: tenant_id, tenantId, org_id, orgId, tid, and namespaced claim
+        # P0: fail closed. Previously an invalid/missing claim silently fell back
+        # to DEFAULT_TENANT_ID, collapsing all IdP users into one tenant.
         tenant_claim_keys = [
             "tenant_id",
             "tenantId",
@@ -214,20 +243,30 @@ async def verify_jwt(
             "https://portcullis.io/tenant",
             settings.jwt_audience + "/tenant" if settings.jwt_audience else None,
         ]
-        tenant_id = DEFAULT_TENANT_ID
+        tenant_id = None
+        tenant_claim_present = False
         for key in tenant_claim_keys:
             if not key:
                 continue
             raw_tid = payload.get(key)
             if raw_tid:
+                tenant_claim_present = True
                 try:
                     import uuid as _uuid
 
                     tenant_id = _uuid.UUID(str(raw_tid))
                     break
                 except Exception:
-                    # Invalid UUID in claim — fall through to default
-                    continue
+                    # Invalid UUID in claim — fail closed, do not default.
+                    raise ValueError("invalid bearer token")
+        if tenant_id is None:
+            if tenant_claim_present:
+                raise ValueError("invalid bearer token")
+            # No tenant claim from IdP: use default tenant explicitly (single-tenant
+            # self-host). Multi-tenant deployments must configure the claim.
+            from app.constants import DEFAULT_TENANT_ID as _DEFAULT
+
+            tenant_id = _DEFAULT
 
         return Subject(
             subject_id=sub,

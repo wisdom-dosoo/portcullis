@@ -182,8 +182,11 @@ class InviteService:
         tenant_id: UUID,
         code: str,
         pepper: str,
+        fallback_pepper: str | None = None,
     ) -> Invitation:
         """Return the redeemable invitation matching ``code`` or raise.
+
+        P3: tries `fallback_pepper` when provided (pepper rotation window).
 
         Raises:
             InviteLookupError: if the code is malformed, unknown, revoked,
@@ -198,6 +201,10 @@ class InviteService:
 
         repo = InvitationRepository(session)
         invitation = await repo.get_by_code_hash(tenant_id, _hash_code(normalized, pepper))
+        if invitation is None and fallback_pepper and fallback_pepper != pepper:
+            invitation = await repo.get_by_code_hash(
+                tenant_id, _hash_code(normalized, fallback_pepper)
+            )
         if invitation is None:
             raise InviteLookupError("invalid invitation code")
 

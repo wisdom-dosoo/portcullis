@@ -1,0 +1,17 @@
+{{- if and .Values.ingress.enabled .Values.tls.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "portcullis.fullname" . }}-tls
+  labels:
+    {{- include "portcullis.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.tls.certManager.secretName | default (index .Values.ingress.tls 0 "secretName") }}
+  issuerRef:
+    kind: {{ .Values.tls.certManager.issuerKind }}
+    name: {{ .Values.tls.certManager.issuerName }}
+  dnsNames:
+    {{- range .Values.ingress.hosts }}
+    - {{ .host | quote }}
+    {{- end }}
+{{- end }}

@@ -37,7 +37,7 @@ from app.gateway.jsonrpc import (
     parse_request,
 )
 from app.gateway.proxy import McpProxy, UpstreamError
-from app.gateway.session import SessionStore
+from app.gateway.session import SessionStore, is_valid_session_id, matches
 from app.limits.policies import parse_default, resolve_policy
 from app.limits.pre_auth import check_pre_auth_limit
 from app.limits.redis_bucket import RateLimiter
@@ -53,7 +53,7 @@ from app.repositories.rate_limits import RateLimitRepository
 from app.repositories.rbac import RbacRepository
 from app.repositories.servers import ServerRepository
 from app.runtime import Runtime
-from app.usage import check_usage_cap, record_usage
+from app.usage import check_usage_cap, record_usage, record_usage_queued
 
 router = APIRouter(tags=["proxy"])
 
@@ -81,7 +81,11 @@ class _AuthContext:
         self.subject = None
         self.server = None
         self.rl_headers: dict[str, str] = {}
-        self._jwks_cache = JwksCache(runtime.redis, settings.jwt_jwks_cache_ttl_seconds)
+        # P3: reuse the process-wide JWKS cache (with pubsub listener) when the
+        # lifespan installed one; fall back to a per-request instance in tests.
+        self._jwks_cache = getattr(request.app.state, "jwks_cache", None) or JwksCache(
+            runtime.redis, settings.jwt_jwks_cache_ttl_seconds
+        )
 
     async def run_pre_auth_checks(self, rpc_id: int | str | None = None) -> JSONResponse | None:
         """Run pre-auth rate limit and authentication. Returns error response or None on success."""
@@ -148,12 +152,39 @@ class _AuthContext:
         repo = ServerRepository(self.session)
         self.server = await repo.get_by_slug(self.subject.tenant_id, self.server_slug)
         if self.server is None:
+            # P0: 404 for unknown slug so clients can distinguish
+            # "no such server" from an outage (503).
             return _json_error(
                 self.request,
-                503,
+                404,
+                rpc_id,
+                METHOD_NOT_FOUND,
+                f"Server '{self.server_slug}' not found",
+            )
+        # P2: re-validate against the *current* allow-list on every request.
+        # Registration-time validation alone lets a shrunk
+        # UPSTREAM_ALLOWED_HOSTS leave stale servers proxying to now-forbidden
+        # hosts until someone edits them.
+        try:
+            from app.security.upstreams import validate_upstream_url as _validate_url
+
+            _validate_url(
+                self.server.upstream_url,
+                self.settings.upstream_hosts_tuple,
+                self.settings.environment,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "proxy.upstream_allowlist_rejected",
+                server_slug=self.server_slug,
+                error=str(exc),
+            )
+            return _json_error(
+                self.request,
+                502,
                 rpc_id,
                 UPSTREAM_UNAVAILABLE,
-                f"Server '{self.server_slug}' not found",
+                f"Server '{self.server_slug}' upstream no longer allowed",
             )
         if self.server.status in (ServerStatus.DISABLED, ServerStatus.UNHEALTHY):
             return _json_error(
@@ -188,7 +219,9 @@ class _AuthContext:
             self.settings.rate_limit_default,
         )
         try:
-            limiter = RateLimiter(self.runtime.redis)
+            # P2: reuse the process-wide limiter (cached Lua SHAs). Falls back
+            # to a per-request instance for hand-built runtimes in tests.
+            limiter = getattr(self.runtime, "rate_limiter", None) or RateLimiter(self.runtime.redis)
             rl_result = await limiter.check(
                 tenant_id=self.subject.tenant_id,
                 subject_id=self.subject.subject_id,
@@ -207,10 +240,11 @@ class _AuthContext:
             retry_headers = dict(self.rl_headers)
             retry_headers["Retry-After"] = str(int(rl_result.retry_after_seconds))
             RATE_LIMIT_REJECTIONS.labels(server_slug=self.server_slug, scope="per_subject").inc()
-            await record_usage(
-                self.session,
+            # P3: queued metering — no extra commit on the request session.
+            await record_usage_queued(
                 tenant_id=self.subject.tenant_id,
                 rate_limit_rejections=1,
+                session_factory=self.runtime.session_factory,
             )
             return _json_error(
                 self.request, 429, rpc_id, RATE_LIMITED, "Rate limit exceeded", retry_headers
@@ -223,6 +257,45 @@ class _AuthContext:
         if self.server.auth_mode == ServerAuthMode.SERVICE_TOKEN:
             service_token = extract_service_token(self.server.service_token_env_var)
         return build_upstream_headers(dict(self.request.headers), service_token)
+
+    async def validate_session(self, rpc_id: int | str | None = None) -> JSONResponse | None:
+        """P0: enforce session ownership before proxying.
+
+        If the client presents ``Mcp-Session-Id``, it must exist and belong to
+        (tenant, subject, server). Otherwise 403 (fixation/cross-tenant reuse).
+        Absent header is allowed (new session; upstream will issue one).
+        Malformed ids are rejected to bound Redis key growth.
+        """
+        inbound = self.request.headers.get("mcp-session-id")
+        if not inbound:
+            return None
+        if not is_valid_session_id(inbound):
+            return _json_error(self.request, 400, rpc_id, INVALID_PARAMS, "Invalid Mcp-Session-Id")
+        if self.subject is None:
+            return _json_error(
+                self.request, 500, rpc_id, INTERNAL_ERROR, "Auth required before session check"
+            )
+        try:
+            store = SessionStore(self.runtime.redis)
+            record = await store.lookup(inbound)
+        except Exception:  # noqa: BLE001 - fail closed on Redis errors
+            return _json_error(
+                self.request, 503, rpc_id, INTERNAL_ERROR, "Session backend unavailable"
+            )
+        if record is None:
+            # Unknown session: fail closed. Client must start a new session
+            # (no header) rather than claiming an arbitrary id.
+            return _json_error(self.request, 404, rpc_id, INVALID_PARAMS, "Session not found")
+        if not matches(
+            record,
+            tenant_id=self.subject.tenant_id,
+            subject_id=self.subject.subject_id,
+            server_slug=self.server_slug,
+        ):
+            return _json_error(
+                self.request, 403, rpc_id, FORBIDDEN, "Session does not belong to caller"
+            )
+        return None
 
 
 def _rate_limit_headers(result: Any) -> dict[str, str]:
@@ -345,6 +418,12 @@ async def mcp_proxy(
             if error:
                 return error
 
+            # P0: enforce session ownership before any RBAC/forward.
+            # Prevents fixation and cross-tenant session reuse.
+            error = await ctx.validate_session(rpc_id)
+            if error:
+                return error
+
             # -------------------------------------------------------------------------
             # Step 3: Derive MCP method and resource/tool name
             # -------------------------------------------------------------------------
@@ -394,10 +473,10 @@ async def mcp_proxy(
                 )
                 if not decision.allowed:
                     RBAC_DENIALS.labels(server_slug=server_slug).inc()
-                    await record_usage(
-                        session,
+                    await record_usage_queued(
                         tenant_id=ctx.subject.tenant_id,
                         rbac_denials=1,
+                        session_factory=runtime.session_factory,
                     )
                     await record_event(
                         runtime.session_factory,
@@ -435,6 +514,12 @@ async def mcp_proxy(
                         "session/terminate requires Mcp-Session-Id header",
                     )
 
+                # Ownership already enforced by validate_session above; re-check
+                # defensively (fail closed on malformed ids).
+                if not is_valid_session_id(inbound_session_id):
+                    return _json_error(
+                        request, 400, rpc_id, INVALID_PARAMS, "Invalid Mcp-Session-Id"
+                    )
                 # Verify the session belongs to this subject
                 session_store = SessionStore(runtime.redis)
                 session_record = await session_store.lookup(inbound_session_id)
@@ -442,14 +527,20 @@ async def mcp_proxy(
                     return _json_error(request, 404, rpc_id, INVALID_PARAMS, "Session not found")
 
                 # Verify ownership
-                if (
-                    session_record.get("tenant_id") != str(ctx.subject.tenant_id)
-                    or session_record.get("subject_id") != ctx.subject.subject_id
-                    or session_record.get("server_slug") != server_slug
+                if not matches(
+                    session_record,
+                    tenant_id=ctx.subject.tenant_id,
+                    subject_id=ctx.subject.subject_id,
+                    server_slug=server_slug,
                 ):
                     return _json_error(
                         request, 403, rpc_id, FORBIDDEN, "Not authorized to terminate this session"
                     )
+
+                # P0: terminate must also be rate-limited (previously bypassed).
+                error = await ctx.check_rate_limit("session/terminate", rpc_id)
+                if error:
+                    return error
 
                 # Delete the session
                 await session_store.delete(inbound_session_id)
@@ -516,11 +607,14 @@ async def mcp_proxy(
             # -------------------------------------------------------------------------
             # Step 5b: Usage-billing cap check (opt-in, self-host unlimited by default)
             # -------------------------------------------------------------------------
-            await record_usage(
-                session,
+            # P3: queued metering — the proxy request session is never committed
+            # for metering, so auth/RBAC reads cannot be perturbed by an
+            # interleaved metering commit.
+            await record_usage_queued(
                 tenant_id=ctx.subject.tenant_id,
                 requests=1,
                 tool_calls=1 if method == "tools/call" else 0,
+                session_factory=runtime.session_factory,
             )
             if method == "tools/call":
                 under_cap = await check_usage_cap(session, ctx.subject.tenant_id, settings)
@@ -546,7 +640,10 @@ async def mcp_proxy(
             # -------------------------------------------------------------------------
             # Step 7: Forward to upstream (buffered unless the method implies SSE)
             # -------------------------------------------------------------------------
-            should_stream = request.headers.get("accept") == "text/event-stream"
+            # P0: `in` (not `==`) so `Accept: application/json, text/event-stream`
+            # does not get mis-buffered as JSON.
+            accept = request.headers.get("accept", "")
+            should_stream = "text/event-stream" in accept
             proxy = McpProxy(runtime.http_client, settings)
             upstream_start = time.perf_counter()
             try:
@@ -599,21 +696,57 @@ async def mcp_proxy(
             # streamed (SSE) response, headers are already available and the body
             # is consumed chunk-by-chunk below without buffering.
             if not should_stream:
+                # P0: bound buffered upstream bytes (content-length pre-check +
+                # post-read cap) so a buggy/malicious upstream cannot OOM us.
+                clen = upstream_response.headers.get("content-length")
+                too_large = (
+                    clen is not None
+                    and clen.isdigit()
+                    and int(clen) > settings.max_response_body_bytes
+                )
+                if too_large:
+                    await upstream_response.aclose()
+                    return _json_error(
+                        request,
+                        502,
+                        rpc_id,
+                        UPSTREAM_UNAVAILABLE,
+                        "Upstream response too large",
+                    )
                 await upstream_response.aread()
+                if len(upstream_response.content) > settings.max_response_body_bytes:
+                    return _json_error(
+                        request, 502, rpc_id, UPSTREAM_UNAVAILABLE, "Upstream response too large"
+                    )
 
             # Persist the session mapping so multi-turn, stateful MCP sessions stay
             # pinned to (tenant, subject, server) under a sliding TTL.
+            # P0: fail closed on id collision across owners (no overwrite).
             if upstream_session_id:
-                session_store = SessionStore(runtime.redis)
-                if inbound_session_id and inbound_session_id != upstream_session_id:
-                    await session_store.delete(inbound_session_id)
-                await session_store.record(
-                    upstream_session_id,
-                    tenant_id=ctx.subject.tenant_id,
-                    subject_id=ctx.subject.subject_id,
-                    server_slug=server_slug,
-                )
-                response_headers["Mcp-Session-Id"] = upstream_session_id
+                if not is_valid_session_id(upstream_session_id):
+                    logger.warning("proxy.invalid_upstream_session_id", server_slug=server_slug)
+                else:
+                    session_store = SessionStore(runtime.redis)
+                    existing = await session_store.lookup(upstream_session_id)
+                    if existing is not None and not matches(
+                        existing,
+                        tenant_id=ctx.subject.tenant_id,
+                        subject_id=ctx.subject.subject_id,
+                        server_slug=server_slug,
+                    ):
+                        logger.warning("proxy.session_id_collision", server_slug=server_slug)
+                        return _json_error(
+                            request, 409, rpc_id, INVALID_REQUEST, "Session id conflict"
+                        )
+                    if inbound_session_id and inbound_session_id != upstream_session_id:
+                        await session_store.delete(inbound_session_id)
+                    await session_store.record(
+                        upstream_session_id,
+                        tenant_id=ctx.subject.tenant_id,
+                        subject_id=ctx.subject.subject_id,
+                        server_slug=server_slug,
+                    )
+                    response_headers["Mcp-Session-Id"] = upstream_session_id
 
             content_type = upstream_response.headers.get("content-type", "")
 
@@ -741,13 +874,24 @@ async def mcp_sse_stream(
             if error:
                 return error
 
+            # P0: SSE streams must also enforce session ownership. Previously
+            # any authenticated subject could open any upstream event stream
+            # regardless of tool permissions / session ownership.
+            error = await ctx.validate_session()
+            if error:
+                return error
+
             # Check rate limit for stream
             error = await ctx.check_rate_limit("stream")
             if error:
                 return error
 
             # Record usage for the streaming connection (one request, no tool call).
-            await record_usage(session, tenant_id=ctx.subject.tenant_id, requests=1)
+            await record_usage_queued(
+                tenant_id=ctx.subject.tenant_id,
+                requests=1,
+                session_factory=runtime.session_factory,
+            )
 
             # Build upstream headers
             upstream_headers = ctx.build_upstream_headers()
@@ -785,16 +929,30 @@ async def mcp_sse_stream(
             if request_id:
                 response_headers["X-Request-Id"] = request_id
             if upstream_session_id:
-                session_store = SessionStore(runtime.redis)
-                if inbound_session_id and inbound_session_id != upstream_session_id:
-                    await session_store.delete(inbound_session_id)
-                await session_store.record(
-                    upstream_session_id,
-                    tenant_id=ctx.subject.tenant_id,
-                    subject_id=ctx.subject.subject_id,
-                    server_slug=server_slug,
-                )
-                response_headers["Mcp-Session-Id"] = upstream_session_id
+                if not is_valid_session_id(upstream_session_id):
+                    logger.warning("proxy.invalid_upstream_session_id", server_slug=server_slug)
+                else:
+                    session_store = SessionStore(runtime.redis)
+                    existing = await session_store.lookup(upstream_session_id)
+                    if existing is not None and not matches(
+                        existing,
+                        tenant_id=ctx.subject.tenant_id,
+                        subject_id=ctx.subject.subject_id,
+                        server_slug=server_slug,
+                    ):
+                        await upstream_response.aclose()
+                        return _json_error(
+                            request, 409, None, INVALID_REQUEST, "Session id conflict"
+                        )
+                    if inbound_session_id and inbound_session_id != upstream_session_id:
+                        await session_store.delete(inbound_session_id)
+                    await session_store.record(
+                        upstream_session_id,
+                        tenant_id=ctx.subject.tenant_id,
+                        subject_id=ctx.subject.subject_id,
+                        server_slug=server_slug,
+                    )
+                    response_headers["Mcp-Session-Id"] = upstream_session_id
 
             content_type = upstream_response.headers.get("content-type", "")
 

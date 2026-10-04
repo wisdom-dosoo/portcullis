@@ -1,3 +1,7 @@
+# P2: deploy variant of the canonical root docker-compose.yml.
+# Canonical stack (with Jaeger) lives at the repo root; this file mirrors it
+# for `api/`-relative workflows (docs, Railway). Keep service names, env keys,
+# and healthchecks in sync when editing either file.
 name: portcullis
 services:
   postgres:
@@ -33,7 +37,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://portcullis:portcullis@postgres:5432/portcullis
       REDIS_URL: redis://redis:6379/0
-      API_KEY_PEPPER: ${API_KEY_PEPPER:-development-only-change-me}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:?API_KEY_PEPPER must be set (see api/.env.example)}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     ports:
       - "8080:8080"
@@ -43,7 +47,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

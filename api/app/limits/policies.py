@@ -24,6 +24,10 @@ class EffectivePolicy:
     request_limit: int
     window_seconds: int
     burst_capacity: int | None
+    # P3: enforcement scope — controls the Redis bucket key so global policies
+    # are actually shared instead of N× per (subject, server, tool).
+    # "tool" | "server" | "subject" | "global"
+    scope: str = "tool"
 
 
 def parse_default(default_str: str) -> tuple[int, int]:
@@ -119,6 +123,7 @@ def resolve_policy(
             request_limit=request_limit,
             window_seconds=window_seconds,
             burst_capacity=request_limit,
+            scope="tool",
         )
 
     def _rank_key(policy: RateLimitPolicy) -> tuple[int, int, int]:
@@ -135,4 +140,10 @@ def resolve_policy(
         request_limit=best.request_limit,
         window_seconds=best.window_seconds,
         burst_capacity=best.burst_capacity,
+        scope=_scope_for_level(_selector_level(best)),
     )
+
+
+def _scope_for_level(level: int) -> str:
+    """Map selector level to bucket scope (P3: shared global buckets)."""
+    return {0: "tool", 1: "server", 2: "subject"}.get(level, "global")

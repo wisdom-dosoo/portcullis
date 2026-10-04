@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session
@@ -40,11 +40,15 @@ async def create_policy(
 async def list_policies(
     subject: Annotated[Subject, Depends(authenticated_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[RateLimitPolicyView]:
-    """List all rate-limit policies for the current tenant."""
+    """List rate-limit policies for the current tenant (P1: paginated)."""
     repo = RateLimitRepository(session)
     policies = await repo.list(tenant_id=subject.tenant_id)
-    return [RateLimitPolicyView.model_validate(p) for p in policies]
+    response.headers["X-Total-Count"] = str(len(policies))
+    return [RateLimitPolicyView.model_validate(p) for p in policies[offset : offset + limit]]
 
 
 @router.patch("/{policy_id}", status_code=200, response_model=RateLimitPolicyView)

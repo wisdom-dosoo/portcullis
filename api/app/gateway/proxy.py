@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ssl
+import tempfile
+
 import httpx
 
 from app.config import Settings
@@ -16,37 +19,49 @@ class UpstreamError(Exception):
         self.status_code_override = status_code_override
 
 
-def _build_tls_config(server: McpServer) -> dict | None:
-    """Build TLS configuration dict for httpx from server mTLS settings.
+def _build_ssl_context(server: McpServer) -> ssl.SSLContext | None:
+    """Build an SSLContext from server mTLS PEM material.
 
-    Returns None if no mTLS is configured, otherwise returns a dict with
-    ssl_context or cert/verify parameters for httpx.
+    P0: httpx does not accept PEM *bytes* for ``cert``/``verify`` — the old
+    code passed ``(cert_bytes, key_bytes)`` which raised per-request. Build a
+    real ``SSLContext`` (CA via cadata, client chain via temp files).
+    Returns None when no mTLS is configured.
     """
     if not server.ssl_ca and not server.ssl_cert and not server.ssl_key:
         return None
-
-    # For httpx, we can use the cert parameter for client certs
-    # and verify parameter for CA verification
-    tls_config = {}
-
-    # Client certificate (for mTLS)
-    if server.ssl_cert and server.ssl_key:
-        # httpx expects (cert_path, key_path) or (cert_pem, key_pem) as bytes
-        # Since we store PEM content as strings, we need to encode them
-        tls_config["cert"] = (server.ssl_cert.encode(), server.ssl_key.encode())
-    elif server.ssl_cert:
-        # Certificate only (no key provided - invalid but handle gracefully)
-        tls_config["cert"] = server.ssl_cert.encode()
-
-    # CA certificate for verifying upstream server
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     if server.ssl_ca:
-        tls_config["verify"] = server.ssl_ca.encode()
-    else:
-        # If no CA provided but client cert is, we still need to verify something
-        # Default to True (use system CA store) unless explicitly disabled
-        tls_config["verify"] = True
+        ctx.load_verify_locations(cadata=server.ssl_ca)
+    if server.ssl_cert and server.ssl_key:
+        with (
+            tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as cert_f,
+            tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as key_f,
+        ):
+            cert_f.write(server.ssl_cert)
+            key_f.write(server.ssl_key)
+            cert_path, key_path = cert_f.name, key_f.name
+        try:
+            ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        finally:
+            import os as _os
 
-    return tls_config
+            for path in (cert_path, key_path):
+                try:
+                    _os.unlink(path)
+                except OSError:
+                    pass
+    elif server.ssl_cert:
+        # Cert without key is invalid; fail closed at call time via UpstreamError.
+        raise UpstreamError("Upstream mTLS misconfigured: cert without key")
+    return ctx
+
+
+def _build_tls_config(server: McpServer) -> dict | None:
+    """Build httpx TLS kwargs from server mTLS settings (SSLContext-based)."""
+    ctx = _build_ssl_context(server)
+    if ctx is None:
+        return None
+    return {"verify": ctx}
 
 
 class McpProxy:
@@ -112,16 +127,29 @@ class McpProxy:
                     headers=headers,
                     content=body,
                 )
-                # For streaming with custom TLS, we need to create a new client
-                # since the shared client doesn't support per-request TLS
+                # For streaming with custom TLS, we need a dedicated client
+                # since the shared client doesn't support per-request TLS.
+                # P0: do not close the client before the caller consumes the
+                # stream — wrap aclose to also close the dedicated client.
                 if tls_config:
-                    async with httpx.AsyncClient(**tls_config) as tls_client:
-                        return await tls_client.send(
-                            request,
-                            timeout=timeout,
-                            stream=True,
-                            follow_redirects=False,
-                        )
+                    tls_client = httpx.AsyncClient(
+                        timeout=timeout, follow_redirects=False, **tls_config
+                    )
+                    try:
+                        resp = await tls_client.send(request, stream=True)
+                    except Exception:
+                        await tls_client.aclose()
+                        raise
+                    orig_aclose = resp.aclose
+
+                    async def _aclose_and_client() -> None:
+                        try:
+                            await orig_aclose()
+                        finally:
+                            await tls_client.aclose()
+
+                    resp.aclose = _aclose_and_client  # type: ignore[method-assign]
+                    return resp
                 return await self._client.send(
                     request,
                     timeout=timeout,
@@ -130,15 +158,15 @@ class McpProxy:
                 )
 
             if tls_config:
-                # Create a new client with TLS config for this request
-                async with httpx.AsyncClient(**tls_config) as tls_client:
+                # P0: buffered mTLS path uses SSLContext (bytes crashed).
+                async with httpx.AsyncClient(
+                    timeout=timeout, follow_redirects=False, **tls_config
+                ) as tls_client:
                     response = await tls_client.request(
                         method=method,
                         url=url,
                         headers=headers,
                         content=body,
-                        timeout=timeout,
-                        follow_redirects=False,
                     )
             else:
                 response = await self._client.request(
@@ -149,9 +177,15 @@ class McpProxy:
                     timeout=timeout,
                     follow_redirects=False,
                 )
+        except UpstreamError:
+            raise
         except httpx.TimeoutException as exc:
             raise UpstreamError(f"Upstream timed out: {exc}") from exc
         except httpx.ConnectError as exc:
             raise UpstreamError(f"Could not connect to upstream: {exc}") from exc
+        except httpx.HTTPError as exc:
+            # P0: map all transport errors (Read/Write/RemoteProtocol/Proxy)
+            # to 502 instead of bubbling to 500 INTERNAL_ERROR.
+            raise UpstreamError(f"Upstream transport error: {exc}") from exc
 
         return response

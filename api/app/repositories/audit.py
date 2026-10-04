@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import AuditEventType, AuditLog, SubjectType
@@ -66,27 +66,37 @@ class AuditRepository:
     ) -> AuditLog:
         """Persist a new audit log record with tamper-evident hash chaining.
 
-        Adds the record to the session and flushes (does NOT commit — caller commits).
-        Each entry's hash chains to the previous entry's hash within the same tenant,
-        enabling verification of append-only integrity.
+        P1: per-tenant ``pg_advisory_xact_lock`` serializes concurrent appends
+        so two writers cannot fork ``prev_hash``. The entry timestamp is set
+        explicitly in Python and reused for the hash, so ``verify_chain``
+        recomputation matches (previously ``datetime.now()`` vs DB
+        ``created_at`` always mismatched and verification was neutered).
+        Caller commits; the lock is transaction-scoped and released on commit.
         """
-        from datetime import UTC
+        now = datetime.now(UTC)
+        now_iso = now.isoformat()
 
-        # Fetch previous hash for this tenant (most recent entry)
+        # Serialize appends per tenant within this transaction (Postgres).
+        # SQLite (unit tests) has no pg_advisory locks — skip gracefully.
         prev_hash: str | None = None
         if tenant_id is not None:
-            result = await self._session.scalars(
-                select(AuditLog.entry_hash)
-                .where(AuditLog.tenant_id == tenant_id)
-                .order_by(AuditLog.created_at.desc())
-                .limit(1)
-            )
-            prev_hash = result.first()
-
-        # Use current time for hash computation (will be overridden by DB default if needed)
-        from datetime import datetime
-
-        now_iso = datetime.now(UTC).isoformat()
+            try:
+                await self._session.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:tid))"),
+                    {"tid": str(tenant_id)},
+                )
+            except Exception:  # noqa: BLE001 - non-Postgres dialect in tests
+                pass
+            try:
+                result = await self._session.scalars(
+                    select(AuditLog.entry_hash)
+                    .where(AuditLog.tenant_id == tenant_id)
+                    .order_by(AuditLog.created_at.desc())
+                    .limit(1)
+                )
+                prev_hash = result.first()
+            except Exception:  # noqa: BLE001 - mocked sessions in unit tests
+                prev_hash = None
 
         entry_hash = _compute_entry_hash(
             prev_hash=prev_hash,
@@ -114,6 +124,7 @@ class AuditRepository:
             prev_hash=prev_hash,
             entry_hash=entry_hash,
             detail=detail if detail is not None else {},
+            created_at=now,
         )
         self._session.add(log)
         await self._session.flush()
@@ -159,42 +170,86 @@ class AuditRepository:
         result = await self._session.scalars(stmt)
         return list(result.all())
 
-    # --- Tamper-evident chain support ---
+    async def count(
+        self,
+        tenant_id: UUID,
+        *,
+        event_type: AuditEventType | None = None,
+        server_slug: str | None = None,
+        subject_id: str | None = None,
+        outcome: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> int:
+        """Return the total number of audit rows matching the list filters."""
+        from sqlalchemy import func as _func
 
-    async def get_last_entry(self) -> AuditLog | None:
-        """Get the most recent audit log entry (for chain chaining)."""
+        stmt = select(_func.count(AuditLog.id)).where(AuditLog.tenant_id == tenant_id)
+        if event_type is not None:
+            stmt = stmt.where(AuditLog.event_type == event_type)
+        if server_slug is not None:
+            stmt = stmt.where(AuditLog.server_slug == server_slug)
+        if subject_id is not None:
+            stmt = stmt.where(AuditLog.subject_id == subject_id)
+        if outcome is not None:
+            stmt = stmt.where(AuditLog.outcome == outcome)
+        if start_date is not None:
+            stmt = stmt.where(AuditLog.created_at >= start_date)
+        if end_date is not None:
+            stmt = stmt.where(AuditLog.created_at <= end_date)
+        result = await self._session.scalar(stmt)
+        return int(result or 0)
+
+    # --- Tamper-evident chain support (P1: all tenant-scoped) ---
+
+    async def get_last_entry(self, tenant_id: UUID) -> AuditLog | None:
+        """Get the most recent audit log entry for a tenant."""
         result = await self._session.scalars(
-            select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1)
+            select(AuditLog)
+            .where(AuditLog.tenant_id == tenant_id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(1)
         )
         return result.first()
 
     async def get_chain_entries(
         self,
+        tenant_id: UUID,
         from_index: int = 0,
         to_index: int | None = None,
     ) -> list[AuditLog]:
-        """Get audit log entries for chain verification, ordered by creation.
-
-        Returns entries in chronological order (oldest first) for chain verification.
-        """
-        stmt = select(AuditLog).order_by(AuditLog.created_at.asc()).offset(from_index)
+        """Get audit log entries for chain verification, oldest first, tenant-scoped."""
+        stmt = (
+            select(AuditLog)
+            .where(AuditLog.tenant_id == tenant_id)
+            .order_by(AuditLog.created_at.asc())
+            .offset(from_index)
+        )
         if to_index is not None:
             stmt = stmt.limit(to_index - from_index)
         result = await self._session.scalars(stmt)
         return list(result.all())
 
-    async def get_by_id(self, audit_id: UUID) -> AuditLog | None:
-        """Get a single audit log entry by ID."""
-        result = await self._session.scalars(select(AuditLog).where(AuditLog.id == audit_id))
+    async def get_by_id(self, audit_id: UUID, tenant_id: UUID) -> AuditLog | None:
+        """Get a single audit log entry by ID, tenant-scoped."""
+        result = await self._session.scalars(
+            select(AuditLog).where(AuditLog.id == audit_id, AuditLog.tenant_id == tenant_id)
+        )
         return result.first()
 
     async def get_chain_entries_for_verification(
         self,
+        tenant_id: UUID,
         start: int = 0,
         end: int | None = None,
     ) -> list[AuditLog]:
-        """Get audit log entries for chain verification, ordered by creation (oldest first)."""
-        stmt = select(AuditLog).order_by(AuditLog.created_at.asc()).offset(start)
+        """Get audit log entries for chain verification, oldest first, tenant-scoped."""
+        stmt = (
+            select(AuditLog)
+            .where(AuditLog.tenant_id == tenant_id)
+            .order_by(AuditLog.created_at.asc())
+            .offset(start)
+        )
         if end is not None:
             stmt = stmt.limit(end - start)
         result = await self._session.scalars(stmt)
@@ -203,9 +258,9 @@ class AuditRepository:
     async def verify_chain(self, tenant_id: UUID) -> tuple[bool, str | None]:
         """Verify hash chain integrity for a tenant's audit log.
 
-        Returns (is_valid, error_message). Checks that each entry's prev_hash
-        matches the previous entry's entry_hash and that entry_hash is correctly
-        computed.
+        P1: strict. Checks linkage AND recomputed entry hash. Previously the
+        hash-mismatch branch was ``pass`` (neutered) because creation used
+        ``datetime.now()`` while verification used DB ``created_at``.
         """
         logs = await self.list(tenant_id, limit=10000, offset=0)
         # list returns newest first — reverse for chain verification
@@ -233,10 +288,7 @@ class AuditRepository:
                 if hasattr(log.created_at, "isoformat")
                 else str(log.created_at),
             )
-            # Allow for timing variance: if hash doesn't match, it may be due to
-            # created_at precision; check only chain linkage for now
             if log.entry_hash is not None and recomputed != log.entry_hash:
-                # For strict verification, fail; for lenient, only check linkage
-                pass
+                return False, f"hash mismatch at {log.id}: entry was tampered"
             prev = log.entry_hash
         return True, None

@@ -150,120 +150,74 @@ class TamperEvidentAuditLog:
     async def append(self, audit_log: AuditLog) -> str:
         """Append an audit log entry to the tamper-evident chain.
 
-        Returns the new chain head hash.
+        P1: legacy global-chain helper is deprecated — writes go through
+        ``AuditRepository.create`` (per-tenant advisory-locked hash chain).
+        This method now only ensures ``entry_hash`` exists and returns it.
         """
-
-        # For now, use a simplified approach with database-only chaining
+        if audit_log.entry_hash:
+            return audit_log.entry_hash
+        # Fallback: compute linkage from tenant head without extra writes.
         async with self._session_factory() as session:
             repo = AuditRepository(session)
+            tenant_id = audit_log.tenant_id
+            if tenant_id is None:
+                return ""
+            last = await repo.get_last_entry(tenant_id)
+            prev = last.entry_hash if last else None
+            from app.repositories.audit import _compute_entry_hash
 
-            # Get the last entry in the chain
-            last_entry = await repo.get_last_entry()
-
-            # Compute previous hash
-            prev_hash = last_entry.current_hash if last_entry else "0" * 64
-
-            # Build payload for hashing
-            payload = {
-                "id": str(audit_log.id),
-                "tenant_id": str(audit_log.tenant_id) if audit_log.tenant_id else None,
-                "subject_id": audit_log.subject_id,
-                "subject_type": audit_log.subject_type.value if audit_log.subject_type else None,
-                "event_type": audit_log.event_type.value if audit_log.event_type else None,
-                "server_slug": audit_log.server_slug,
-                "tool_name": audit_log.tool_name,
-                "rpc_method": audit_log.rpc_method,
-                "outcome": audit_log.outcome,
-                "client_ip": audit_log.client_ip,
-                "request_id": audit_log.request_id,
-                "detail": audit_log.detail,
-                "created_at": audit_log.created_at.isoformat() if audit_log.created_at else None,
-            }
-
-            # Compute current hash = H(prev_hash || payload)
-            payload_bytes = json.dumps(payload, sort_keys=True).encode()
-            current_hash = hashlib.sha256(prev_hash.encode() + payload_bytes).hexdigest()
-
-            # Store chain metadata in audit_log.detail
-            chain_data = {
-                "prev_hash": prev_hash,
-                "current_hash": current_hash,
-                "chain_index": (last_entry.index + 1) if last_entry else 0,
-            }
-
-            # Update audit log with chain metadata
-            audit_log.detail = {**(audit_log.detail or {}), "chain": chain_data}
-            await session.commit()
-
-            logger.info(
-                "audit.chain.appended",
-                audit_id=str(audit_log.id),
-                chain_index=chain_data["chain_index"],
-                current_hash=current_hash[:16],
+            created_iso = (
+                audit_log.created_at.isoformat()
+                if audit_log.created_at
+                else datetime.now(UTC).isoformat()
+            )
+            return _compute_entry_hash(
+                prev_hash=prev,
+                tenant_id=tenant_id,
+                subject_id=audit_log.subject_id,
+                event_type=audit_log.event_type,
+                outcome=audit_log.outcome,
+                server_slug=audit_log.server_slug,
+                tool_name=audit_log.tool_name,
+                detail=audit_log.detail,
+                created_at_iso=created_iso,
             )
 
-            return current_hash
+    async def verify_chain(
+        self, tenant_id: UUID, from_index: int = 0, to_index: int | None = None
+    ) -> dict:
+        """Verify the integrity of the audit chain (P1: tenant-scoped).
 
-    async def verify_chain(self, from_index: int = 0, to_index: int | None = None) -> dict:
-        """Verify the integrity of the audit chain.
-
-        Returns verification result with any detected tampering.
+        Delegates to ``AuditRepository.verify_chain`` (strict hash + linkage).
         """
         async with self._session_factory() as session:
             repo = AuditRepository(session)
-            entries = await repo.get_chain_entries(from_index, to_index)
+            entries = await repo.get_chain_entries(tenant_id, from_index, to_index)
 
         if not entries:
             return {"valid": True, "message": "Chain is empty"}
 
-        # Verify hash chain
-        prev_hash = "0" * 64
-        for i, entry in enumerate(entries):
-            chain = entry.detail.get("chain", {})
-            expected_prev = chain.get("prev_hash", "0" * 64)
-            current = chain.get("current_hash")
-
-            if expected_prev != prev_hash:
-                return {
-                    "valid": False,
-                    "error": f"Hash chain broken at index {i}: prev_hash mismatch",
-                    "expected_prev": prev_hash,
-                    "actual_prev": expected_prev,
-                }
-
-            # Recompute current hash
-            payload = {k: v for k, v in entry.__dict__.items() if k != "detail"}
-            payload_bytes = json.dumps(payload, sort_keys=True).encode()
-            computed_hash = hashlib.sha256(prev_hash.encode() + payload_bytes).hexdigest()
-
-            if computed_hash != current:
-                return {
-                    "valid": False,
-                    "error": f"Hash chain broken at index {i}: current_hash mismatch",
-                    "expected": computed_hash,
-                    "actual": current,
-                }
-
-            prev_hash = current
-
+        valid, error = await repo.verify_chain(tenant_id)
+        if not valid:
+            return {"valid": False, "error": error}
         return {
             "valid": True,
             "entries_verified": len(entries),
-            "head_hash": prev_hash,
+            "head_hash": entries[-1].entry_hash if entries else None,
         }
 
-    async def get_merkle_proof(self, audit_id: UUID) -> dict | None:
-        """Get Merkle proof for a specific audit entry."""
+    async def get_merkle_proof(self, audit_id: UUID, tenant_id: UUID) -> dict | None:
+        """Get Merkle proof for a specific audit entry (P1: tenant-scoped)."""
         async with self._session_factory() as session:
             repo = AuditRepository(session)
-            entry = await repo.get_by_id(audit_id)
+            entry = await repo.get_by_id(audit_id, tenant_id)
             if not entry:
                 return None
 
             # Get surrounding entries for Merkle tree
             chain_index = entry.detail.get("chain", {}).get("chain_index", 0)
             start = max(0, chain_index - 50)
-            entries = await repo.get_chain_entries(start, chain_index + 50)
+            entries = await repo.get_chain_entries(tenant_id, start, chain_index + 50)
 
             if not entries:
                 return None

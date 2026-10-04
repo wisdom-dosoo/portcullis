@@ -1,4 +1,4 @@
-{{- if and .Values.backup.enabled .Values.postgresql.enabled }}
+{{- if and .Values.backup.enabled (or .Values.postgresql.enabled .Values.externalDatabase.enabled) }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -18,20 +18,43 @@ spec:
           serviceAccountName: {{ include "portcullis.serviceAccountName" . }}
           containers:
             - name: backup
+              # P1: postgres:16-alpine has pg_dump but no `aws` CLI, and its
+              # BusyBox `date` lacks GNU `-d`. Install aws-cli via apk and rely
+              # on S3 bucket lifecycle for retention (no GNU-date cleanup).
+              # P2: supports externalDatabase (host/port/db/user from values,
+              # password via existingSecret key DB_PASSWORD when set).
               image: postgres:16-alpine
               imagePullPolicy: IfNotPresent
               env:
                 - name: PGHOST
+                  {{- if .Values.externalDatabase.enabled }}
+                  value: {{ .Values.externalDatabase.host | quote }}
+                  {{- else if .Values.postgresql.pgbouncer.enabled }}
+                  value: proxy
+                  {{- else }}
                   value: {{ include "portcullis.postgresql.fullname" . }}
+                  {{- end }}
                 - name: PGPORT
-                  value: "5432"
+                  value: {{ (.Values.externalDatabase.port | default 5432) | quote }}
                 - name: PGDATABASE
-                  value: portcullis
+                  value: {{ .Values.externalDatabase.database | default "portcullis" | quote }}
                 - name: PGUSER
+                  {{- if .Values.externalDatabase.enabled }}
+                  value: {{ .Values.externalDatabase.username | quote }}
+                  {{- else }}
                   valueFrom:
                     secretKeyRef:
                       name: {{ include "portcullis.postgresql.fullname" . }}
                       key: postgres-password
+                  {{- end }}
+                {{- if and .Values.externalDatabase.enabled .Values.secrets.existingSecret }}
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secrets.existingSecret }}
+                      key: DB_PASSWORD
+                      optional: true
+                {{- end }}
                 - name: BACKUP_BUCKET
                   value: {{ .Values.backup.storage.bucket }}
                 - name: BACKUP_PREFIX
@@ -52,21 +75,14 @@ spec:
                 - /bin/sh
                 - -c
                 - |
-                  set -e
+                  set -eu
+                  apk add --no-cache aws-cli >/dev/null
                   DATE=$(date +%Y%m%d_%H%M%S)
                   FILE="portcullis_${DATE}.sql.gz"
                   echo "Starting backup to s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/${FILE}"
                   pg_dump --no-owner --no-acl | gzip | aws s3 cp - s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/${FILE}
                   echo "Backup completed: ${FILE}"
-                  # Cleanup old backups
-                  aws s3 ls s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/ | while read -r line; do
-                    FILE_DATE=$(echo $line | awk '{print $1" "$2}')
-                    FILE_NAME=$(echo $line | awk '{print $4}')
-                    if [[ $(date -d "$FILE_DATE" +%s) -lt $(date -d "-{{ .Values.backup.retentionDays }} days" +%s) ]]; then
-                      echo "Deleting old backup: $FILE_NAME"
-                      aws s3 rm s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/$FILE_NAME
-                    fi
-                  done
+                  echo "Retention is enforced by the S3 bucket lifecycle policy (see values backup.retentionDays)."
               resources:
                 requests:
                   cpu: 100m

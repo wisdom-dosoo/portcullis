@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,9 +61,14 @@ async def _list_tenants_with_plan(session: AsyncSession) -> list[TenantView]:
 async def list_tenants(
     _subject: Annotated[Subject, Depends(platform_admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[TenantView]:
-    """List all provisioned tenants, newest first (platform admin only)."""
-    return await _list_tenants_with_plan(session)
+    """List provisioned tenants, newest first (P3: paginated, platform admin)."""
+    views = await _list_tenants_with_plan(session)
+    response.headers["X-Total-Count"] = str(len(views))
+    return views[offset : offset + limit]
 
 
 @router.post("", status_code=201, response_model=TenantProvisionResponse)

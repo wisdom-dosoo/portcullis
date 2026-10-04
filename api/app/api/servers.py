@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, get_settings_dep
@@ -40,10 +40,15 @@ async def list_servers(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
     subject: Annotated[Subject, Depends(authenticated_subject)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ServerView]:
-    """Return all registered MCP servers."""
+    """Return registered MCP servers (P1: paginated)."""
     svc = RegistryService(session=session, settings=settings, tenant_id=subject.tenant_id)
-    return await svc.list()
+    servers = await svc.list()
+    response.headers["X-Total-Count"] = str(len(servers))
+    return servers[offset : offset + limit]
 
 
 @router.get("/{slug}", response_model=ServerView)
@@ -103,9 +108,9 @@ async def trigger_health_probe(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    subject: Annotated[Subject, Depends(authenticated_subject)],
+    subject: Annotated[Subject, Depends(admin_subject)],
 ) -> dict[str, str]:
-    """Trigger an immediate health probe for the specified server."""
+    """Trigger an immediate health probe for the specified server (P0: admin-only)."""
     # Fetch the ORM object to pass to the monitor
     repo = ServerRepository(session)
     server = await repo.get_by_slug(subject.tenant_id, slug)
@@ -114,6 +119,7 @@ async def trigger_health_probe(
 
     monitor = request.app.state.monitor
     await monitor.probe(server)
+    await session.commit()
 
     # Return status from the ORM object after probe
     return {"status": server.status}

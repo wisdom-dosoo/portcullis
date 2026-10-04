@@ -20,6 +20,7 @@ import {
 import {
   useListServersV1ServersGet,
   useDeleteServerV1ServersSlugDelete,
+  useTriggerHealthProbeV1ServersSlugHealthPost,
   type ServerView,
 } from "@/api/generated";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -164,6 +165,7 @@ export default function ServersPage() {
   const { data: resp, isLoading } = useListServersV1ServersGet();
   const servers = (resp?.data ?? []) as ServerView[];
   const deleteServer = useDeleteServerV1ServersSlugDelete();
+  const triggerHealthProbe = useTriggerHealthProbeV1ServersSlugHealthPost();
 
   const [view, setView]             = useState<ViewMode>("table");
   const [search, setSearch]         = useState("");
@@ -190,14 +192,15 @@ export default function ServersPage() {
   }
 
   async function handleHealthCheck(server: ServerView) {
-    const url = `${server.upstream_url}${server.health_check_path}`;
+    // P1: route health probes through the gateway (auth/RBAC/audit enforced).
+    // Previously this fetched server.upstream_url directly from the browser,
+    // bypassing auth, leaking internal URLs, and CORS-failing on private hosts.
     try {
-      const res = await fetch(url);
-      if (res.ok) {
-        toast.success(`Health check passed (${res.status})`);
-      } else {
-        toast.error(`Health check failed: ${res.status} ${res.statusText}`);
-      }
+      const res =
+        await triggerHealthProbe.mutateAsync({ slug: server.slug });
+      const status = (res as { data?: { status?: string } }).data?.status ?? "ok";
+      toast.success(`Health check: ${status}`);
+      qc.invalidateQueries({ queryKey: ["/v1/servers"] });
     } catch (err) {
       toast.error(`Health check error: ${(err as Error).message}`);
     }

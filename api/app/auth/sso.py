@@ -53,17 +53,21 @@ def _verify(value: str, signature: str, pepper: str) -> bool:
 
 
 def make_state(settings: Settings) -> str:
-    """Return an opaque, signed SSO state value for the auth-code flow."""
+    """Return an opaque, signed SSO state value (P3: active pepper)."""
     nonce = secrets.token_urlsafe(24)
-    return f"{nonce}.{_sign(nonce, settings.api_key_pepper)}"
+    return f"{nonce}.{_sign(nonce, settings.active_pepper)}"
 
 
 def verify_state(state: str, settings: Settings) -> bool:
-    """Return True if the state was minted by this server and is well-formed."""
+    """Return True if the state was minted by this server (P3: both peppers)."""
     if not state or "." not in state:
         return False
     nonce, signature = state.rsplit(".", 1)
-    return _verify(nonce, signature, settings.api_key_pepper)
+    if _verify(nonce, signature, settings.active_pepper):
+        return True
+    if settings.api_key_pepper_next and settings.api_key_pepper != settings.active_pepper:
+        return _verify(nonce, signature, settings.api_key_pepper)
+    return False
 
 
 def state_cookie_domain(settings: Settings) -> str:
@@ -166,6 +170,13 @@ class SsoIdentity:
             raise SsoError("identity provider returned no 'sub' claim")
         if not email:
             raise SsoError("identity provider returned no email")
+        # P0: prevent account takeover via unverified emails. Reject when the
+        # IdP explicitly marks the email unverified. Missing claim is allowed
+        # for legacy IdPs that do not emit it.
+        if "email_verified" in userinfo:
+            verified = userinfo.get("email_verified")
+            if verified not in (True, "true", "True", 1, "1"):
+                raise SsoError("identity provider email is not verified")
         if settings.sso_oidc_issuer:
             token_issuer = userinfo.get("iss")
             if token_issuer and token_issuer != settings.sso_oidc_issuer:

@@ -25,8 +25,9 @@ podLabels: {}
 
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 1000
-  fsGroup: 1000
+  # P1: must match Dockerfile `useradd -r portcullis` (UID 999), not 1000.
+  runAsUser: 999
+  fsGroup: 999
 
 securityContext:
   capabilities:
@@ -41,6 +42,15 @@ service:
   targetPort: 8080
   annotations:
     prometheus.io/scrape: "true"
+
+# P2 (v1.3 roadmap): cert-manager TLS automation. When enabled, a Certificate
+# is created for every ingress host using the given ClusterIssuer/Issuer.
+tls:
+  certManager:
+    enabled: false
+    issuerKind: ClusterIssuer
+    issuerName: letsencrypt-prod
+    secretName: ""
 
 ingress:
   enabled: true
@@ -109,6 +119,9 @@ affinity:
                   - portcullis
           topologyKey: kubernetes.io/hostname
 
+# P2: spread replicas across zones/hosts (no-op on single-node kind/k3d).
+topologySpreadConstraints: []
+
 # Application configuration
 config:
   environment: production
@@ -128,8 +141,9 @@ config:
   telemetryEnabled: false
   metricsEnabled: true
 
-# Redis configuration
+# Redis configuration (Bitnami subchart; see Chart.yaml condition redis.enabled)
 redis:
+  enabled: true
   mode: sentinel  # standalone, sentinel, cluster
   url: "redis://redis-master:6379/0"
   sentinelMaster: "mymaster"
@@ -141,6 +155,12 @@ redis:
 # PostgreSQL configuration
 postgresql:
   enabled: true
+  auth:
+    # P1: required by templates/secret.yaml DATABASE_URL rendering.
+    # Provide via --set or external secret; never commit real passwords.
+    username: portcullis
+    password: ""
+    database: portcullis
   primary:
     persistence:
       enabled: true
@@ -245,6 +265,8 @@ networkPolicy:
       ports:
         - protocol: TCP
           port: 8080
+  # P2: appended verbatim to the default egress rules (DNS/Postgres/Redis/443).
+  egressExtra: []
 
 # Pod disruption budget
 podDisruptionBudget:

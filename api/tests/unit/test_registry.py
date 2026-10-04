@@ -265,7 +265,7 @@ class TestRegistryServiceCreate:
                 slug="my-server",
                 upstream_url="http://localhost/mcp",
                 auth_mode=ServerAuthMode.SERVICE_TOKEN,
-                service_token_env_var="MY_TOKEN_VAR",
+                service_token_env_var="PORTCULLIS_UPSTREAM_TOKEN_TEST",
             )
             result = await svc.create(cmd)
 

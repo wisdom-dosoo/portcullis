@@ -1,11 +1,11 @@
 import { defineConfig } from "orval";
 
-// Target resolution:
-//   1. OPENAPI_JSON env var (e.g. a generated file path).
-//   2. Fallback to the live backend's OpenAPI document at the same origin the
-//      axios client uses by default, so `npm run api:generate` mostly just works
-//      with the API running locally.
-const target = process.env.OPENAPI_JSON ?? "http://localhost:8000/openapi.json";
+// P1: generate from the checked-in spec to prevent drift.
+// Previously `http://localhost:8000/openapi.json` guaranteed that
+// api/openapi.json, api/openapi_new.json, web/openapi.json, and
+// src/api/generated.ts diverged (ssl_*/bridge_*/audit filters were stale).
+// Regenerate with: OPENAPI_JSON=../api/openapi.json npm run api:generate
+const target = process.env.OPENAPI_JSON ?? "./openapi.json";
 
 export default defineConfig({
   portcullis: {

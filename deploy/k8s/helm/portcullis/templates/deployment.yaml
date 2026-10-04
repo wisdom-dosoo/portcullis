@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "portcullis.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "portcullis.selectorLabels" . | nindent 6 }}
@@ -51,9 +53,9 @@ spec:
                 name: {{ include "portcullis.fullname" . }}-secrets
             {{- end }}
           livenessProbe:
-            {{- toYaml .Values.healthChecks.livenessProbe | nindent 12 }}
+            {{- omit .Values.healthChecks.livenessProbe "enabled" | toYaml | nindent 12 }}
           readinessProbe:
-            {{- toYaml .Values.healthChecks.readinessProbe | nindent 12 }}
+            {{- omit .Values.healthChecks.readinessProbe "enabled" | toYaml | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
@@ -76,5 +78,9 @@ spec:
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}

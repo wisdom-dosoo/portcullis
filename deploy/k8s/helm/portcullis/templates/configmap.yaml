@@ -21,8 +21,9 @@ data:
   USAGE_ENFORCEMENT_ENABLED: {{ .Values.config.usageEnforcementEnabled | quote }}
   TELEMETRY_ENABLED: {{ .Values.config.telemetryEnabled | quote }}
   METRICS_ENABLED: {{ .Values.config.metricsEnabled | quote }}
+  # P1: REDIS_URL lives only in the Secret (single source of truth). It was
+  # previously defined in both ConfigMap and Secret with disagreeing defaults.
   REDIS_MODE: {{ .Values.redis.mode | quote }}
-  REDIS_URL: {{ .Values.redis.url | quote }}
   REDIS_SENTINEL_MASTER: {{ .Values.redis.sentinelMaster | quote }}
   REDIS_SENTINEL_HOSTS: {{ .Values.redis.sentinelHosts | quote }}
   REDIS_MAX_CONNECTIONS: {{ .Values.redis.maxConnections | quote }}

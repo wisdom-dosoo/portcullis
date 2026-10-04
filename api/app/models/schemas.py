@@ -26,6 +26,21 @@ from app.models.orm import (
 )
 
 _SLUG_ALLOWED = re.compile(r"^[a-z0-9-]+$")
+# P0: allow-list for service-token env vars. Prevents exfiltration of arbitrary
+# process env (DATABASE_URL, API_KEY_PEPPER, SSO secrets) via a malicious or
+# compromised REGISTER_SERVER caller pointing upstream_url at an attacker host.
+SERVICE_TOKEN_ENV_VAR_RE = re.compile(r"^PORTCULLIS_UPSTREAM_TOKEN_[A-Z0-9_]{1,64}$")
+
+
+def _validate_service_token_env_var(value: str | None) -> str | None:
+    """Enforce the service-token env-var allow-list (None passthrough)."""
+    if value is None:
+        return None
+    if not SERVICE_TOKEN_ENV_VAR_RE.fullmatch(value):
+        raise ValueError(
+            "service_token_env_var must match 'PORTCULLIS_UPSTREAM_TOKEN_[A-Z0-9_]{1,64}'"
+        )
+    return value
 
 
 def _normalize_slug(value: str) -> str:
@@ -44,18 +59,18 @@ def _normalize_slug(value: str) -> str:
 class ServerCreate(BaseModel):
     """Schema for creating a new MCP server registration."""
 
-    name: str
+    name: str = Field(min_length=1, max_length=200)
     slug: str
-    upstream_url: str
+    upstream_url: str = Field(min_length=1, max_length=2000)
     transport: ServerTransport = ServerTransport.STREAMABLE_HTTP
     auth_mode: ServerAuthMode = ServerAuthMode.NONE
-    service_token_env_var: str | None = None
+    service_token_env_var: str | None = Field(default=None, max_length=200)
     ssl_ca: str | None = None
     ssl_cert: str | None = None
     ssl_key: str | None = None
-    health_check_path: str = "/health"
-    bridge_command: str | None = None
-    bridge_port: int | None = None
+    health_check_path: str = Field(default="/health", min_length=1, max_length=500)
+    bridge_command: str | None = Field(default=None, max_length=2000)
+    bridge_port: int | None = Field(default=None, ge=1, le=65535)
 
     @field_validator("slug", mode="before")
     @classmethod
@@ -69,22 +84,45 @@ class ServerCreate(BaseModel):
             raise ValueError("slug may only contain lowercase letters, digits, and hyphens")
         return normalized
 
+    @field_validator("service_token_env_var")
+    @classmethod
+    def validate_token_env_var(cls, value: str | None) -> str | None:
+        return _validate_service_token_env_var(value)
+
+    @field_validator("bridge_command")
+    @classmethod
+    def validate_bridge_cmd(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        import shlex as _shlex
+
+        try:
+            argv = _shlex.split(value)
+        except ValueError as exc:
+            raise ValueError(f"bridge_command does not parse: {exc}") from exc
+        if not argv:
+            raise ValueError("bridge_command must name an executable")
+        for token in argv:
+            if any(c in token for c in (";", "|", "&", "$", "`", "\n", "\r")):
+                raise ValueError("bridge_command must be a plain argv string (no shell syntax)")
+        return value
+
 
 class ServerUpdate(BaseModel):
     """Schema for updating an existing MCP server registration (all fields optional)."""
 
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     slug: str | None = None
-    upstream_url: str | None = None
+    upstream_url: str | None = Field(default=None, min_length=1, max_length=2000)
     transport: ServerTransport | None = None
     auth_mode: ServerAuthMode | None = None
-    service_token_env_var: str | None = None
+    service_token_env_var: str | None = Field(default=None, max_length=200)
     ssl_ca: str | None = None
     ssl_cert: str | None = None
     ssl_key: str | None = None
-    health_check_path: str | None = None
-    bridge_command: str | None = None
-    bridge_port: int | None = None
+    health_check_path: str | None = Field(default=None, min_length=1, max_length=500)
+    bridge_command: str | None = Field(default=None, max_length=2000)
+    bridge_port: int | None = Field(default=None, ge=1, le=65535)
     status: ServerStatus | None = None
 
     @field_validator("slug", mode="before")
@@ -100,6 +138,29 @@ class ServerUpdate(BaseModel):
         if not _SLUG_ALLOWED.match(normalized):
             raise ValueError("slug may only contain lowercase letters, digits, and hyphens")
         return normalized
+
+    @field_validator("service_token_env_var")
+    @classmethod
+    def validate_token_env_var(cls, value: str | None) -> str | None:
+        return _validate_service_token_env_var(value)
+
+    @field_validator("bridge_command")
+    @classmethod
+    def validate_bridge_cmd(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        import shlex as _shlex
+
+        try:
+            argv = _shlex.split(value)
+        except ValueError as exc:
+            raise ValueError(f"bridge_command does not parse: {exc}") from exc
+        if not argv:
+            raise ValueError("bridge_command must name an executable")
+        for token in argv:
+            if any(c in token for c in (";", "|", "&", "$", "`", "\n", "\r")):
+                raise ValueError("bridge_command must be a plain argv string (no shell syntax)")
+        return value
 
 
 def _normalize_email(value: str) -> str:
@@ -238,8 +299,19 @@ class ApprovalDecision(BaseModel):
 class ApiKeyCreate(BaseModel):
     """Schema for creating a new API key."""
 
-    name: str
-    scopes: list[str] = []
+    name: str = Field(min_length=1, max_length=200)
+    scopes: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_scopes(cls, value: list[str]) -> list[str]:
+        allowed = {"admin", "auditor"}
+        for scope in value:
+            if scope not in allowed:
+                raise ValueError(f"unknown scope '{scope}': must be one of {sorted(allowed)}")
+            if len(scope) > 50:
+                raise ValueError("scope must be at most 50 characters")
+        return value
 
 
 class ApiKeyView(BaseModel):
@@ -265,7 +337,7 @@ class ApiKeyCreateResponse(BaseModel):
 class RoleCreate(BaseModel):
     """Schema for creating a new role."""
 
-    name: str
+    name: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_\-]+$")
 
 
 class RoleView(BaseModel):
@@ -285,7 +357,7 @@ class RoleBindingCreate(BaseModel):
     or ``subject_type=oauth_subject`` with a JWT ``sub`` claim string.
     """
 
-    subject_id: str
+    subject_id: str = Field(min_length=1, max_length=500)
     subject_type: SubjectType = SubjectType.API_KEY
 
 
@@ -304,10 +376,10 @@ class RoleBindingView(BaseModel):
 class ToolPermissionCreate(BaseModel):
     """Schema for creating a tool permission rule on a role."""
 
-    server_pattern: str
-    tool_pattern: str
+    server_pattern: str = Field(min_length=1, max_length=200)
+    tool_pattern: str = Field(min_length=1, max_length=200)
     effect: PermissionEffect
-    priority: int = 0
+    priority: int = Field(default=0, ge=-1000, le=1000)
 
 
 class ToolPermissionView(BaseModel):
@@ -325,7 +397,13 @@ class ToolPermissionView(BaseModel):
 
 
 class ServerView(BaseModel):
-    """Safe response schema for MCP server data (never exposes service_token_env_var)."""
+    """Safe response schema for MCP server data.
+
+    P0: write-only secrets. Never exposes ``service_token_env_var`` (only the
+    env-var *name* would leak the exfiltration target) nor ``ssl_ca/cert/key``
+    PEM material. Admins set mTLS via ServerCreate/Update; reads return
+    ``ssl_configured`` booleans only.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -336,9 +414,7 @@ class ServerView(BaseModel):
     upstream_url: str
     transport: ServerTransport
     auth_mode: ServerAuthMode
-    ssl_ca: str | None = None
-    ssl_cert: str | None = None
-    ssl_key: str | None = None
+    ssl_configured: bool = False
     status: ServerStatus
     health_check_path: str
     consecutive_health_failures: int
@@ -352,15 +428,15 @@ class ServerView(BaseModel):
 class RateLimitPolicyCreate(BaseModel):
     """Schema for creating a new rate-limit policy."""
 
-    subject_id: str | None = None
+    subject_id: str | None = Field(default=None, max_length=500)
     subject_type: SubjectType = SubjectType.API_KEY
-    server_pattern: str | None = None
-    tool_pattern: str | None = None
+    server_pattern: str | None = Field(default=None, max_length=200)
+    tool_pattern: str | None = Field(default=None, max_length=200)
     algorithm: RateLimitAlgorithm
-    request_limit: int = Field(gt=0)
-    window_seconds: int = Field(gt=0)
-    burst_capacity: int | None = Field(default=None, gt=0)
-    priority: int = 0
+    request_limit: int = Field(gt=0, le=1_000_000)
+    window_seconds: int = Field(gt=0, le=86_400)
+    burst_capacity: int | None = Field(default=None, gt=0, le=1_000_000)
+    priority: int = Field(default=0, ge=-1000, le=1000)
 
 
 class RateLimitPolicyUpdate(BaseModel):

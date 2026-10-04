@@ -21,6 +21,33 @@ if TYPE_CHECKING:
     from app.runtime import Runtime
 
 
+def _normalize_management_route(path: str) -> str:
+    """Collapse concrete IDs/UUIDs to route templates to bound Redis keys.
+
+    /v1/servers/abc-123/health -> /v1/servers/{slug}/health, UUID path
+    segments -> {id}. Query strings are stripped by url.path already.
+    """
+    import re as _re
+
+    uuid_re = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    parts = [p for p in path.split("/") if p]
+    normalized: list[str] = []
+    for i, part in enumerate(parts):
+        if _re.fullmatch(uuid_re, part):
+            normalized.append("{id}")
+        elif i >= 3 and parts[0] == "v1" and parts[1] in {"servers", "roles", "api-keys"}:
+            # /v1/servers/{slug}[/...], /v1/roles/{role_id}[/...]
+            if i == 2:
+                normalized.append("{slug}" if parts[1] == "servers" else "{id}")
+            elif i == 3 and parts[1] == "roles":
+                normalized.append("{binding}")
+            else:
+                normalized.append(part)
+        else:
+            normalized.append(part)
+    return "/" + "/".join(normalized)
+
+
 class ManagementApiRateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting middleware for /v1/* management API endpoints.
 
@@ -128,27 +155,29 @@ class ManagementApiRateLimitMiddleware(BaseHTTPMiddleware):
         runtime: Runtime,
         settings: Settings,
     ):
-        """Check rate limit for the authenticated subject."""
+        """Check rate limit for the authenticated subject (P2: route-normalized)."""
         async with runtime.session_factory() as session:
             rl_repo = RateLimitRepository(session)
             policies = await rl_repo.list(subject.tenant_id)
 
-        # Use path as the "tool_or_method" for management API rate limiting
+        # P2: normalize full paths (/v1/servers/{id}) to route templates
+        # (/v1/servers/{slug}) so per-ID buckets don't explode Redis keyspace.
+        route = _normalize_management_route(path)
         policy = resolve_policy(
             subject.subject_id,
             subject.subject_type,
             "management_api",
-            path,
+            route,
             policies,
             settings.management_api_rate_limit_default,
         )
 
-        limiter = RateLimiter(runtime.redis)
+        limiter = getattr(runtime, "rate_limiter", None) or RateLimiter(runtime.redis)
         return await limiter.check(
             tenant_id=subject.tenant_id,
             subject_id=subject.subject_id,
             server_slug="management_api",
-            tool_or_method=path,
+            tool_or_method=route,
             policy=policy,
         )
 

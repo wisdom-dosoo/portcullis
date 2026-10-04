@@ -43,7 +43,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://portcullis:portcullis@postgres:5432/portcullis
       REDIS_URL: redis://redis:6379/0
-      API_KEY_PEPPER: ${API_KEY_PEPPER:-development-only-change-me}
+      # P0: fail fast if pepper is unset. Never boot with the public dev pepper
+      # unless explicitly opted in for local dev via API_KEY_PEPPER env.
+      API_KEY_PEPPER: ${API_KEY_PEPPER:?API_KEY_PEPPER must be set (see api/.env.example)}
       ENVIRONMENT: development
       LOG_LEVEL: DEBUG
     ports:
@@ -54,7 +56,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -238,7 +238,11 @@ function SignInForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (attempts >= 5) { setAuthError("too_many_attempts"); return; }
+    // P3: client-side attempt cap is UX only (trivially bypassed via reload —
+    // real brute-force protection is server pre-auth rate limiting). Persist
+    // across reloads so the hint actually works.
+    const stored = Number(sessionStorage.getItem("pc_login_attempts") ?? attempts);
+    if (stored >= 5) { setAuthError("too_many_attempts"); return; }
     setAuthError(null);
     setLoading(true);
     try {
@@ -249,7 +253,7 @@ function SignInForm() {
         await axiosClient.get("/auth/me", {
           headers: { Authorization: `Bearer ${trimmedApiKey}` },
         });
-        setToken(trimmedApiKey);
+        setToken(trimmedApiKey, remember);
       } else {
         const response = await axiosClient.post("/auth/login", {
           email: trimmedEmail,
@@ -257,11 +261,17 @@ function SignInForm() {
         });
         const token = response.data?.access_token ?? response.data?.token;
         if (!token) throw new Error("missing_token");
-        setToken(token);
+        setToken(token, remember);
       }
       router.push("/dashboard");
     } catch (err: unknown) {
-      setAttempts((n) => n + 1);
+      const next = attempts + 1;
+      setAttempts(next);
+      try {
+        sessionStorage.setItem("pc_login_attempts", String(next));
+      } catch {
+        /* ignore */
+      }
       const status = (err as { response?: { status?: number } })?.response?.status;
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       if (!status) {
@@ -394,9 +404,15 @@ function SignInForm() {
           </div>
           <span className="text-xs" style={{ color: "var(--pc-muted)" }}>Remember this device</span>
         </label>
-        <Link href="/auth/forgot-password" className="text-xs transition-colors" style={{ color: "var(--pc-primary)" }}>
-          Forgot key?
-        </Link>
+        {/* P3: no self-service reset endpoint exists — link to a dead route
+            (`/auth/forgot-password` 404) was worse than honest copy. */}
+        <span
+          className="text-xs"
+          style={{ color: "var(--pc-muted)" }}
+          title="Ask your org admin to issue a new API key or re-invite you"
+        >
+          Forgot key? Contact your org admin
+        </span>
       </div>
 
       {/* Submit */}

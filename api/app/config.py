@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     redis_socket_timeout_seconds: PositiveFloat = 5.0
     redis_socket_connect_timeout_seconds: PositiveFloat = 5.0
     api_key_pepper: str = Field(default=DEVELOPMENT_API_KEY_PEPPER, min_length=16)
+    # P3: rotation support — when set, new hashes use the next pepper while
+    # verification accepts both (see docs/secrets-rotation.md). Deploy as
+    # API_KEY_PEPPER=<new>, API_KEY_PEPPER_NEXT=<old> during the window.
+    api_key_pepper_next: str | None = Field(default=None, min_length=16)
     environment: Environment = Environment.DEVELOPMENT
     log_level: str = "INFO"
     cors_allowed_origins: str = "*"
@@ -66,6 +70,25 @@ class Settings(BaseSettings):
     auth_rate_limit_default: str = "20/minute"
     management_api_rate_limit_default: str = "100/minute"
     max_request_body_bytes: PositiveInt = 1_048_576
+    # P0: bound buffered upstream responses so a malicious/buggy upstream
+    # cannot OOM the gateway worker via `aread()`.
+    max_response_body_bytes: PositiveInt = 10_485_760
+
+    # P2: DB pool tuning — defaults (pool_size=5) queue under the proxy's
+    # 2-4 queries + 2 writes per request. Exposed so operators can size for
+    # replica count and PgBouncer transaction pooling.
+    db_pool_size: PositiveInt = 10
+    db_max_overflow: int = 20
+    db_pool_recycle_seconds: PositiveInt = 1800
+    db_pool_timeout_seconds: PositiveInt = 30
+    # P3: set true when DATABASE_URL points at PgBouncer in transaction mode.
+    # Disables asyncpg prepared-statement cache (incompatible with transaction
+    # pooling) — without this every query fails after the first checkout.
+    db_pgbouncer: bool = False
+
+    # P2: shared upstream HTTP pool bounds (default httpx pool is 100 conns).
+    http_max_connections: PositiveInt = 200
+    http_max_keepalive: PositiveInt = 50
 
     # Origin allow-list for production DNS rebinding protection
     # When set in production, the Origin header is validated against this list
@@ -155,6 +178,22 @@ class Settings(BaseSettings):
 
     # Prometheus metrics endpoint
     metrics_enabled: bool = True
+    # P3: when set, /metrics requires `Authorization: Bearer <token>` (or the
+    # token as ?token= for naive scrapers is NOT accepted — header only).
+    # Unset preserves the current network-restricted-but-unauthenticated
+    # behavior for backwards compatibility.
+    metrics_auth_token: str | None = None
+
+    # P3: stdio-bridge transports spawn local subprocesses. Registration of
+    # stdio_bridge servers is disabled unless the operator opts in — any
+    # Developer can otherwise register servers and turn bridge_command into
+    # local command execution on whoever runs the bridge worker.
+    stdio_bridge_enabled: bool = False
+
+    @property
+    def active_pepper(self) -> str:
+        """Pepper for new hashes (P3 rotation: next wins when set)."""
+        return self.api_key_pepper_next or self.api_key_pepper
 
     @property
     def cors_origins_tuple(self) -> tuple[str, ...]:

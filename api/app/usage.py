@@ -45,6 +45,59 @@ async def record_usage(
         logger.warning("usage.record_failed", tenant_id=str(tenant_id))
 
 
+async def record_usage_queued(
+    *,
+    tenant_id: object,
+    requests: int = 0,
+    tool_calls: int = 0,
+    rbac_denials: int = 0,
+    rate_limit_rejections: int = 0,
+    session_factory=None,
+) -> None:
+    """Enqueue usage for background batch flush (P3 hot-path, no per-request commit).
+
+    Falls back to synchronous best-effort write when the queue is unavailable
+    (tests, CLI, queue full) so no caller must handle metering errors.
+    """
+    try:
+        from app.usage_queue import get_usage_queue
+
+        queue = get_usage_queue()
+        if session_factory is not None and getattr(queue, "_task", None) is None:
+            # Lazily bind the queue to the proxy's session factory.
+            try:
+                queue.start(session_factory)
+            except RuntimeError:
+                pass  # no running loop (tests/CLI) — fall through to direct write
+        if getattr(queue, "_task", None) is not None and not queue._task.done():  # noqa: SLF001
+            if queue.enqueue(
+                tenant_id,  # type: ignore[arg-type]
+                requests=requests,
+                tool_calls=tool_calls,
+                rbac_denials=rbac_denials,
+                rate_limit_rejections=rate_limit_rejections,
+            ):
+                return
+        # Queue unavailable or full — direct write with a fresh session.
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    await record_usage(
+                        session,
+                        tenant_id=tenant_id,
+                        requests=requests,
+                        tool_calls=tool_calls,
+                        rbac_denials=rbac_denials,
+                        rate_limit_rejections=rate_limit_rejections,
+                    )
+                    return
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001
+        pass
+    logger.warning("usage.queued_dropped", tenant_id=str(tenant_id))
+
+
 async def monthly_tool_calls(session: AsyncSession, tenant_id: object) -> int:
     """Return the tenant's current-month tool-call total, best-effort."""
     try:

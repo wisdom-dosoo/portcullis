@@ -9,6 +9,16 @@ repos:
         args: [--check]
         files: ^api/
 
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (api)
+        entry: mypy app
+        language: system
+        pass_filenames: false
+        files: ^api/app/
+        require_serial: true
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

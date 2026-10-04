@@ -46,10 +46,20 @@ async def _filter_generic_list(
     list_key: str,
     name_key: str,
 ) -> dict[str, Any]:
-    """Generic filter for list responses (tools, resources, prompts, roots)."""
+    """Generic filter for list responses (P2: fail-closed on unknown shapes)."""
+    import structlog as _structlog
+
     result_key = response_body.get("result")
-    if result_key is None or list_key not in result_key:
-        return copy.deepcopy(response_body)
+    if not isinstance(result_key, dict) or list_key not in result_key:
+        # P2: unknown shapes previously passed through unfiltered. Deny by
+        # returning an empty list so a weird upstream cannot leak tools.
+        _structlog.get_logger(__name__).warning(
+            "tool_filter.unknown_shape", server_slug=server_slug, list_key=list_key
+        )
+        new_response = copy.deepcopy(response_body)
+        if isinstance(result_key, dict):
+            new_response["result"][list_key] = []
+        return new_response
 
     repo = RbacRepository(session)
     permissions = await repo.get_permissions_for_subject(

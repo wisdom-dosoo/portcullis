@@ -77,14 +77,8 @@ class TestUsageRepository:
 
     async def test_increment_creates_row_and_adds(self) -> None:
         session = AsyncMock()
-        row = MagicMock()
-        row.requests = 0
-        row.tool_calls = 0
-        row.rbac_denials = 0
-        row.rate_limit_rejections = 0
-        session.scalar = AsyncMock(return_value=row)
-        session.add = MagicMock()
-        session.flush = AsyncMock()
+        # P1: increment uses a single ON CONFLICT upsert via execute().
+        session.execute = AsyncMock()
 
         repo = UsageRepository(session)
         await repo.increment(
@@ -95,10 +89,7 @@ class TestUsageRepository:
             rate_limit_rejections=4,
             day=date(2026, 8, 19),
         )
-        assert row.requests == 10
-        assert row.tool_calls == 3
-        assert row.rbac_denials == 1
-        assert row.rate_limit_rejections == 4
+        assert session.execute.await_count == 1
 
     async def test_monthly_tool_calls_sums_through_totals(self) -> None:
         session = AsyncMock()

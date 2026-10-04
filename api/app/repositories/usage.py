@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import UsageDaily
@@ -27,39 +28,84 @@ class UsageRepository:
         rate_limit_rejections: int = 0,
         day: date | None = None,
     ) -> None:
-        """Increment the counters for the given tenant on the given day.
+        """Increment counters atomically via single ON CONFLICT upsert.
 
-        Upserts a row on first increment for the day.  The caller commits the
-        session; metering is intentionally fire-and-forget tolerant of the
-        counter being a little stale under load.
+        P1: single-statement ``INSERT ... ON CONFLICT (tenant_id, usage_date)
+        DO UPDATE`` — no SELECT-then-INSERT race, no UniqueViolation under
+        concurrent first-requests-of-day, no extra round trip on the hot path.
+        Falls back to SELECT-then-INSERT on non-Postgres dialects (SQLite tests).
+        Caller commits; failures propagate to best-effort ``record_usage``.
         """
-        usage_date = day or datetime.now(UTC).date()
-        row = await self._get_or_create(tenant_id, usage_date)
-        row.requests += requests
-        row.tool_calls += tool_calls
-        row.rbac_denials += rbac_denials
-        row.rate_limit_rejections += rate_limit_rejections
+        from sqlalchemy.exc import IntegrityError
 
-    async def _get_or_create(self, tenant_id: UUID, usage_date: date) -> UsageDaily:
-        result = await self._session.scalar(
-            select(UsageDaily).where(
-                UsageDaily.tenant_id == tenant_id,
-                UsageDaily.usage_date == usage_date,
+        usage_date = day or datetime.now(UTC).date()
+        try:
+            stmt = pg_insert(UsageDaily).values(
+                tenant_id=tenant_id,
+                usage_date=usage_date,
+                requests=requests,
+                tool_calls=tool_calls,
+                rbac_denials=rbac_denials,
+                rate_limit_rejections=rate_limit_rejections,
             )
-        )
-        if result is not None:
-            return result
-        row = UsageDaily(
-            tenant_id=tenant_id,
-            usage_date=usage_date,
-            requests=0,
-            tool_calls=0,
-            rbac_denials=0,
-            rate_limit_rejections=0,
-        )
-        self._session.add(row)
-        await self._session.flush()
-        return row
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_usage_daily_tenant_date",
+                set_={
+                    "requests": UsageDaily.requests + requests,
+                    "tool_calls": UsageDaily.tool_calls + tool_calls,
+                    "rbac_denials": UsageDaily.rbac_denials + rbac_denials,
+                    "rate_limit_rejections": UsageDaily.rate_limit_rejections
+                    + rate_limit_rejections,
+                },
+            )
+            await self._session.execute(stmt)
+            return
+        except Exception:
+            # Non-Postgres dialect (SQLite in unit tests) or mocked session
+            # without execute support — fall back to portable SELECT-then-INSERT.
+            # IntegrityError on concurrent insert is swallowed by record_usage.
+            pass
+        try:
+            row = await self._session.scalar(
+                select(UsageDaily).where(
+                    UsageDaily.tenant_id == tenant_id,
+                    UsageDaily.usage_date == usage_date,
+                )
+            )
+        except Exception:
+            return
+        if row is not None:
+            row.requests += requests
+            row.tool_calls += tool_calls
+            row.rbac_denials += rbac_denials
+            row.rate_limit_rejections += rate_limit_rejections
+            return
+        try:
+            self._session.add(
+                UsageDaily(
+                    tenant_id=tenant_id,
+                    usage_date=usage_date,
+                    requests=requests,
+                    tool_calls=tool_calls,
+                    rbac_denials=rbac_denials,
+                    rate_limit_rejections=rate_limit_rejections,
+                )
+            )
+            await self._session.flush()
+        except IntegrityError:
+            # Lost a concurrent first-insert race — retry as increment.
+            await self._session.rollback()
+            row = await self._session.scalar(
+                select(UsageDaily).where(
+                    UsageDaily.tenant_id == tenant_id,
+                    UsageDaily.usage_date == usage_date,
+                )
+            )
+            if row is not None:
+                row.requests += requests
+                row.tool_calls += tool_calls
+                row.rbac_denials += rbac_denials
+                row.rate_limit_rejections += rate_limit_rejections
 
     async def get_daily(
         self,

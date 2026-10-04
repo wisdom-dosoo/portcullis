@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import random
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -15,6 +17,18 @@ from app.models.orm import McpServer, ServerStatus
 from app.observability.metrics import UPSTREAM_CONSECUTIVE_FAILURES, UPSTREAM_HEALTH
 
 logger = structlog.get_logger(__name__)
+
+# P3: bound concurrent probes so a 500-server fleet doesn't fan out 500
+# simultaneous connections (or serialize O(N) for minutes).
+PROBE_CONCURRENCY = 10
+
+
+@dataclass(frozen=True)
+class _ProbeTarget:
+    tenant_id: object
+    slug: str
+    upstream_url: str
+    health_check_path: str
 
 
 class HealthMonitor:
@@ -32,42 +46,87 @@ class HealthMonitor:
         self._stop_event = asyncio.Event()
 
     async def probe(self, server: McpServer) -> bool:
-        """Probe a single server's health endpoint.
+        """Probe a single server's health endpoint (manual trigger path).
 
-        Updates ``consecutive_health_failures``, ``last_health_check_at``,
-        and ``status`` in-place on the ORM object.
-
-        Returns:
-            True if the server responded with status < 400, False otherwise.
+        Updates the ORM object in place via `_apply_result`; the caller owns
+        the commit (endpoint commits, `run_once` uses per-server sessions).
         """
-        url = f"{server.upstream_url.rstrip('/')}{server.health_check_path}"
+        healthy = await self._check_url(server.upstream_url, server.health_check_path)
+        self._apply_result(server, healthy)
+        return healthy
+
+    async def run_once(self) -> None:
+        """Probe all active/unhealthy servers with bounded concurrency (P3).
+
+        Previously one session stayed open across sequential network probes
+        with a single commit at the end — a long-lived txn that starved the
+        pool and scaled O(N). Now: short read txn for targets, concurrent
+        network probes (semaphore + jitter), then one short write txn per
+        server.
+        """
+        from app.repositories.servers import ServerRepository
+
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(
+                    McpServer.tenant_id,
+                    McpServer.slug,
+                    McpServer.upstream_url,
+                    McpServer.health_check_path,
+                ).where(McpServer.status.in_([ServerStatus.ACTIVE, ServerStatus.UNHEALTHY]))
+            )
+            targets = [_ProbeTarget(*row) for row in result.all()]
+
+        semaphore = asyncio.Semaphore(PROBE_CONCURRENCY)
+
+        async def _probe_one(target: _ProbeTarget) -> tuple[_ProbeTarget, bool]:
+            async with semaphore:
+                # P3: jitter breaks replica thundering herds.
+                await asyncio.sleep(random.uniform(0, 1.0))
+                healthy = await self._check_url(target.upstream_url, target.health_check_path)
+                return target, healthy
+
+        results = await asyncio.gather(*(_probe_one(t) for t in targets))
+
+        for target, healthy in results:
+            try:
+                async with self._session_factory() as session:
+                    repo = ServerRepository(session)
+                    server = await repo.get_by_slug(target.tenant_id, target.slug)  # type: ignore[arg-type]
+                    if server is None:
+                        continue
+                    self._apply_result(server, healthy)
+                    await session.commit()
+            except Exception:  # noqa: BLE001 - one bad row must not fail the pass
+                logger.exception("health_monitor.persist_failed", slug=target.slug)
+
+    async def _check_url(self, upstream_url: str, health_check_path: str) -> bool:
+        """Network-only health check (no DB touch)."""
+        url = f"{upstream_url.rstrip('/')}{health_check_path}"
         timeout = httpx.Timeout(
             self._settings.upstream_read_timeout_seconds,
             connect=self._settings.upstream_connect_timeout_seconds,
         )
-        healthy = False
         try:
             response = await self._http_client.get(
                 url,
                 timeout=timeout,
                 follow_redirects=False,
             )
-            healthy = response.status_code < 400
+            return response.status_code < 400
         except Exception:  # noqa: BLE001
-            healthy = False
+            return False
 
+    def _apply_result(self, server: McpServer, healthy: bool) -> None:
+        """Apply a probe outcome to an ORM object (caller commits)."""
         server.last_health_check_at = datetime.now(UTC)
-
         if healthy:
             server.consecutive_health_failures = 0
             UPSTREAM_HEALTH.labels(server_slug=server.slug).set(1)
             UPSTREAM_CONSECUTIVE_FAILURES.labels(server_slug=server.slug).set(0)
             if server.status == ServerStatus.UNHEALTHY:
                 server.status = ServerStatus.ACTIVE
-                logger.info(
-                    "health_monitor.recovered",
-                    slug=server.slug,
-                )
+                logger.info("health_monitor.recovered", slug=server.slug)
         else:
             server.consecutive_health_failures += 1
             UPSTREAM_CONSECUTIVE_FAILURES.labels(server_slug=server.slug).set(
@@ -81,30 +140,10 @@ class HealthMonitor:
             if server.consecutive_health_failures >= self._settings.health_check_failure_threshold:
                 server.status = ServerStatus.UNHEALTHY
                 UPSTREAM_HEALTH.labels(server_slug=server.slug).set(0)
-                logger.error(
-                    "health_monitor.marked_unhealthy",
-                    slug=server.slug,
-                )
-
-        return healthy
-
-    async def run_once(self) -> None:
-        """Probe all active and unhealthy servers in a single pass."""
-        async with self._session_factory() as session:
-            result = await session.execute(
-                select(McpServer).where(
-                    McpServer.status.in_([ServerStatus.ACTIVE, ServerStatus.UNHEALTHY])
-                )
-            )
-            servers = list(result.scalars().all())
-
-            for server in servers:
-                await self.probe(server)
-
-            await session.commit()
+                logger.error("health_monitor.marked_unhealthy", slug=server.slug)
 
     async def start(self) -> None:
-        """Run the health monitor loop until ``stop()`` is called."""
+        """Run the health monitor loop until ``stop()`` is called (P3: jittered)."""
         logger.info("health_monitor.started")
         while not self._stop_event.is_set():
             try:
@@ -112,11 +151,12 @@ class HealthMonitor:
             except Exception:
                 logger.exception("health_monitor.run_once_failed")
 
-            # Wait for the interval or stop signal (whichever comes first)
+            # P3: jittered interval breaks multi-replica thundering herds.
+            interval = self._settings.health_check_interval_seconds * random.uniform(0.9, 1.1)
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
-                    timeout=self._settings.health_check_interval_seconds,
+                    timeout=interval,
                 )
             except TimeoutError:
                 pass

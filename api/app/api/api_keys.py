@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, get_settings_dep
@@ -33,7 +33,7 @@ async def create_api_key(
     issued = await issue_key(
         name=body.name,
         scopes=body.scopes,
-        pepper=settings.api_key_pepper,
+        pepper=settings.active_pepper,
         session=session,
         tenant_id=subject.tenant_id,
     )
@@ -50,11 +50,17 @@ async def create_api_key(
 async def list_api_keys(
     session: Annotated[AsyncSession, Depends(get_session)],
     subject: Annotated[Subject, Depends(admin_subject)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ApiKeyView]:
-    """Return all active API keys for the tenant. Requires admin scope (least privilege)."""
+    """Return active API keys for the tenant (P1: paginated). Requires admin scope."""
     repo = ApiKeyRepository(session)
     keys = await repo.list_active(subject.tenant_id)
-    return [ApiKeyView.model_validate(k) for k in keys]
+    total = len(keys)
+    response.headers["X-Total-Count"] = str(total)
+    page = keys[offset : offset + limit]
+    return [ApiKeyView.model_validate(k) for k in page]
 
 
 @router.delete("/{key_id}", status_code=204)

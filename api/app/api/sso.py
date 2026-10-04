@@ -54,9 +54,14 @@ _AUTH_COOKIE = "portcullis_auth"
 _DASHBOARD_REDIRECT = "/sso-callback"
 
 
-def _redirect_target(token: str) -> str:
-    """Build the dashboard redirect URL carrying the one-time token."""
-    return f"{_DASHBOARD_REDIRECT}?token={token}"
+def _redirect_target() -> str:
+    """Build the dashboard redirect URL (P0: no token in URL).
+
+    The API key is delivered exclusively via the HttpOnly ``portcullis_auth``
+    cookie to avoid leaking it in browser history, server logs, or Referer.
+    The frontend ``/sso-callback`` page completes auth via the cookie.
+    """
+    return _DASHBOARD_REDIRECT
 
 
 def _set_auth_cookie(response: Response, token: str, settings: Settings) -> None:
@@ -193,7 +198,8 @@ async def sso_callback(
     except SsoError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    redirect = RedirectResponse(_redirect_target(access_token), status_code=302)
+    # P0: cookie-only delivery. Do not put the API key in the redirect URL.
+    redirect = RedirectResponse(_redirect_target(), status_code=302)
     redirect.delete_cookie("portcullis_sso_state", path="/", domain=state_cookie_domain(settings))
     # Set auth cookie with the API key
     redirect.set_cookie(
@@ -253,13 +259,9 @@ async def _link_or_create(
 ) -> str:
     """Link-or-create a User + OrgMember for the SSO identity and return a token.
 
-    If a User already exists with the identity email (in the default tenant),
-    the flow just issues a fresh user-bound API key.  Otherwise a new approved
-    User + org_owner OrgMember is created (mirroring the ``create`` register
-    flow) and linked by the OAuth ``sub`` so subsequent logins match by
-    subject first, then by email.
-
-    Role mapping from IdP groups is applied when creating new OrgMembers.
+    P0 least-privilege: only the very first member of a tenant becomes
+    ``ORG_OWNER``; everyone else gets the IdP-mapped role (default
+    ``DEVELOPER``). Previously every auto-provisioned stranger became owner.
     """
     repo = UserRepository(session)
     member_repo = OrgMemberRepository(session)
@@ -273,29 +275,42 @@ async def _link_or_create(
         return await _issue_token(session, user.id, user.email, settings)
 
     # 2. Existing user by email → link subject to that account.
+    # P0: do not escalate to owner on link; preserve least privilege.
     user = await repo.get_by_email(DEFAULT_TENANT_ID, identity.email)
     if user is not None:
         if user.approval_status is not UserApprovalStatus.APPROVED:
             raise SsoError("account is pending approval or was denied")
         if not user.is_active:
             raise SsoError("account is disabled")
+        groups = (userinfo or {}).get("groups") or (userinfo or {}).get("roles") or []
+        if isinstance(groups, str):
+            groups = [groups]
+        linked_role = _map_idp_roles_to_org_role(groups, settings)
+        # First member ever → owner (bootstrap); otherwise mapped role.
+        existing_count = await member_repo.count(DEFAULT_TENANT_ID)
+        if existing_count == 0:
+            linked_role = OrgMemberRole.ORG_OWNER
         await member_repo.create(
             DEFAULT_TENANT_ID,
-            OrgMemberCreate(user_subject=identity.subject, admin_role=OrgRole.ORG_OWNER.value),
+            OrgMemberCreate(user_subject=identity.subject, admin_role=linked_role.value),
         )
         return await _issue_token(session, user.id, user.email, settings)
 
-    # 3. No user — auto-provision an approved org owner with role from IdP groups.
-    passwords = PasswordService(settings.api_key_pepper)
+    # 3. No user — auto-provision with least privilege (first user owns).
+    passwords = PasswordService(settings.active_pepper, fallback_pepper=settings.api_key_pepper)
 
-    # Map IdP groups to OrgMemberRole if userinfo available
-    admin_role = OrgMemberRole.ORG_OWNER
-    if userinfo:
-        groups = userinfo.get("groups") or userinfo.get("roles") or []
-        if isinstance(groups, str):
-            groups = [groups]
-        admin_role = _map_idp_roles_to_org_role(groups, settings)
+    groups = (userinfo or {}).get("groups") or (userinfo or {}).get("roles") or []
+    if isinstance(groups, str):
+        groups = [groups]
+    admin_role = _map_idp_roles_to_org_role(groups, settings)
+    existing_count = await member_repo.count(DEFAULT_TENANT_ID)
+    if existing_count == 0:
+        admin_role = OrgMemberRole.ORG_OWNER
+    # Never default strangers to owner when members already exist.
+    if existing_count > 0 and admin_role == OrgMemberRole.ORG_OWNER:
+        admin_role = OrgMemberRole.DEVELOPER
 
+    org_role = OrgRole.ORG_OWNER if existing_count == 0 else OrgRole.DEVELOPER
     user = await repo.create(
         tenant_id=DEFAULT_TENANT_ID,
         email=identity.email,
@@ -304,7 +319,7 @@ async def _link_or_create(
         org_name=None,
         intended_use=None,
         approval_status=UserApprovalStatus.APPROVED,
-        org_role=OrgRole.ORG_OWNER,
+        org_role=org_role,
     )
     await session.flush()
     await create_default_roles(session, DEFAULT_TENANT_ID)
@@ -325,7 +340,7 @@ async def _issue_token(session: AsyncSession, user_id: UUID, email: str, setting
     issued = await issue_key(
         name=f"user:{email}",
         scopes=[],
-        pepper=settings.api_key_pepper,
+        pepper=settings.active_pepper,
         session=session,
         tenant_id=DEFAULT_TENANT_ID,
         user_id=user_id,

@@ -28,9 +28,17 @@ def _migrate_database(url: str) -> None:
 
     # Alembic's env.py calls asyncio.run() itself, so the migration must not run
     # inside an already-running event loop; a subprocess is therefore the safe
-    # (and CI-identical) way to invoke it.
+    # (and CI-identical) way to invoke it. P2: surface stderr on failure instead
+    # of swallowing it via capture_output.
     env = {**os.environ, "DATABASE_URL": url}
-    subprocess.run(["alembic", "upgrade", "head"], check=True, env=env, capture_output=True)
+    proc = subprocess.run(
+        ["alembic", "upgrade", "head"], check=False, env=env, capture_output=True, text=True
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"alembic upgrade head failed ({proc.returncode}):\n"
+            f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
 
 
 @pytest.fixture(scope="session")
@@ -103,3 +111,57 @@ async def redis_client(redis_container: str) -> AsyncGenerator[Redis, None]:
         yield client
     finally:
         await client.aclose()
+
+
+# P2: DB isolation for integration tests. The session-scoped container is
+# shared across tests; without cleanup one test's rows leak into the next
+# (e.g. tenant counts, usage daily sums). This fixture truncates mutable
+# tables before each integration test and re-seeds the default tenant so
+# `test_migrations` seed assumptions hold regardless of order.
+_TRUNCATE_TABLES = (
+    "usage_daily",
+    "audit_logs",
+    "rate_limit_policies",
+    "tool_permissions",
+    "role_bindings",
+    "roles",
+    "team_servers",
+    "org_members",
+    "teams",
+    "invitations",
+    "api_keys",
+    "mcp_servers",
+    "users",
+    "licenses",
+    "tenants",
+)
+
+
+@pytest.fixture()
+async def clean_db(async_engine: AsyncEngine) -> AsyncGenerator[None, None]:
+    """Truncate mutable tables, then re-seed the default tenant.
+
+    Opt-in per test (request the fixture) to avoid slowing unit tests that use
+    AsyncMock sessions. Integration tests that assert counts should request it.
+    """
+    from sqlalchemy import text as _text
+
+    async with async_engine.begin() as conn:
+        for table in _TRUNCATE_TABLES:
+            try:
+                await conn.execute(_text(f'DELETE FROM "{table}"'))
+            except Exception:
+                # Table may not exist on older migration heads in some tests.
+                continue
+        # Re-seed the sentinel default tenant expected by seed migrations.
+        try:
+            await conn.execute(
+                _text(
+                    "INSERT INTO tenants (id, name, slug) VALUES "
+                    "('00000000-0000-0000-0000-000000000001', 'default', 'default') "
+                    "ON CONFLICT (id) DO NOTHING"
+                )
+            )
+        except Exception:
+            pass
+    yield

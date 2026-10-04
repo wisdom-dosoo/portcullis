@@ -57,6 +57,25 @@ addopts = "-ra"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "integration: requires Postgres+Redis (services or testcontainers)",
+  "e2e: operator-journey tests (mocked routing + compose smoke, skipped without stack)",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/tests/*", "*/alembic/*", "app/main.py"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise AssertionError",
+  "except ImportError:",
+]
 
 [tool.ruff]
 target-version = "py312"

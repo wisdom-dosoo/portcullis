@@ -4,22 +4,32 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with:
+          python-version: "3.12"
+          cache: pip
       - run: pip install -e ".[dev]"
         working-directory: api
       - run: ruff format --check .
         working-directory: api
       - run: ruff check .
         working-directory: api
+      - run: mypy app
+        working-directory: api
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -42,28 +52,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with:
+          python-version: "3.12"
+          cache: pip
       - run: pip install -e ".[dev]"
         working-directory: api
       - run: alembic upgrade head
         working-directory: api
-      - run: pytest tests/unit tests/contract -q --cov=app --cov-fail-under=80
+      # P1: run the full suite (unit+contract+integration+e2e) so proxy,
+      # RBAC, and migration coverage cannot rot on main unnoticed.
+      - run: pytest tests/unit tests/contract tests/integration tests/e2e -q --cov=app --cov-report=xml --cov-fail-under=80
+        working-directory: api
+      - run: alembic upgrade head --sql > /tmp/migrate.sql && test -s /tmp/migrate.sql
+        working-directory: api
+      - run: python scripts/regen_openapi.py --check
         working-directory: api
 
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with:
+          python-version: "3.12"
+          cache: pip
       - run: pip install pip-audit
       - run: pip-audit -r requirements.txt
+        working-directory: api
+      # P3: runtime-only audit missed dev/toolchain CVEs (locust, testcontainers).
+      - run: pip install -e ".[dev]" && pip-audit
         working-directory: api
 
   docker:
     needs: [lint, test, security]
-    if: github.ref == 'refs/heads/main'
+    # P1: build on PRs (no push) so Dockerfile/entrypoint breaks are caught
+    # before merge; push only on main.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -71,18 +98,123 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push API image
+      - name: Build API image (push on main only)
         uses: docker/build-push-action@v6
         with:
           context: api
-          push: true
+          push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  helm:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+      - run: helm lint deploy/k8s/helm/portcullis
+      - run: helm template portcullis deploy/k8s/helm/portcullis --values deploy/k8s/helm/portcullis/values.yaml | head -n 50
+      # P3: render conditional branches that default values never exercise
+      # (external DB backup, cert-manager, HPA-off, monitoring-off).
+      - run: >-
+          helm template portcullis deploy/k8s/helm/portcullis
+          --set backup.enabled=true --set postgresql.enabled=false
+          --set externalDatabase.enabled=true --set externalDatabase.host=db.example.com
+          --set secrets.apiKeyPepper=dummy-pepper-for-template-only-1234
+          | grep -q "kind: CronJob"
+      - run: >-
+          helm template portcullis deploy/k8s/helm/portcullis
+          --set ingress.enabled=true --set tls.certManager.enabled=true
+          --set tls.certManager.issuerName=letsencrypt-prod
+          --set secrets.apiKeyPepper=dummy-pepper-for-template-only-1234
+          | grep -q "kind: Certificate"
+      - run: >-
+          helm template portcullis deploy/k8s/helm/portcullis
+          --set autoscaling.enabled=false --set replicaCount=1
+          --set monitoring.prometheusRules.enabled=false
+          --set secrets.apiKeyPepper=dummy-pepper-for-template-only-1234
+          | grep -q "replicas: 1"
+
+  web:
+    # P3: web had zero CI (43 lint errors, no tests, orval drift). Lint +
+    # unit + build gate PRs; Playwright runs on demand (needs browsers).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:unit -- --run
+      - run: npm run build
+
+  trivy-pr:
+    # P3: PRs previously merged unscanned (release gate ran post-push).
+    needs: [docker]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build PR image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: api
+          push: false
+          load: true
+          tags: portcullis:pr-scan
+          cache-from: type=gha
+      - name: Trivy scan (PR gate)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: portcullis:pr-scan
+          format: sarif
+          output: trivy-pr.sarif
+          exit-code: 0
+          severity: CRITICAL,HIGH
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-pr.sarif
+
+  smoke:
+    # P2: true black-box gate — boots compose and hits the live gateway.
+    needs: [docker]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API_KEY_PEPPER: ci-test-pepper-change-in-production
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build postgres redis portcullis
+      - run: |
+          for i in $(seq 1 24); do
+            curl -sf http://localhost:8080/healthz && break || sleep 5
+          done
+          curl -sf http://localhost:8080/healthz
+      - run: docker compose exec -T portcullis python -m pytest tests/e2e/test_compose_smoke.py -q
+        env:
+          SMOKE_BASE_URL: http://localhost:8080
+      - run: docker compose down -v
+        if: always()

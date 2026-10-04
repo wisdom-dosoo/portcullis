@@ -14,11 +14,21 @@ from alembic import command
 EXPECTED_TABLES = {
     "tenants",
     "mcp_servers",
+    "users",
+    "super_admin_organizations",
+    "teams",
+    "team_servers",
+    "org_members",
+    "invitations",
     "api_keys",
     "roles",
     "role_bindings",
     "tool_permissions",
+    "audit_logs",
     "rate_limit_policies",
+    "licenses",
+    "usage_daily",
+    "instances",
 }
 
 DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
@@ -29,13 +39,19 @@ DEFAULT_TENANT_SLUG = "default"
 async def test_migration_creates_all_tables_and_seeds_default_tenant(
     postgres_container: str,
 ) -> None:
-    """Upgrade to head then verify all 7 tables exist and default tenant is seeded."""
+    """Upgrade to head then verify all tables exist and default tenant is seeded."""
     # Run alembic upgrade to head using the container URL.
     # Must run in a thread because env.py calls asyncio.run() which
     # cannot be called from within an already-running event loop.
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", postgres_container)
     await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+
+    # P2: single-head check — multiple heads mean a broken merge.
+    from alembic.script import ScriptDirectory
+
+    scripts = ScriptDirectory.from_config(alembic_cfg)
+    assert len(scripts.get_heads()) == 1, f"multiple heads: {scripts.get_heads()}"
 
     # Inspect schema using async engine
     engine = create_async_engine(postgres_container, pool_pre_ping=True)

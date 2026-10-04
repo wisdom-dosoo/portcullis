@@ -25,8 +25,9 @@ class OriginValidationMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/mcp/"):
             return await call_next(request)
 
-        # Only enforce in production
-        if self._settings.environment is not Environment.PRODUCTION:
+        # P2: enforce in staging as well as production (was production-only,
+        # leaving the staging gateway — often publicly reachable — open).
+        if self._settings.environment not in (Environment.PRODUCTION, Environment.STAGING):
             return await call_next(request)
 
         # Get the Origin header

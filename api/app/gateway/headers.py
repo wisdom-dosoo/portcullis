@@ -48,12 +48,17 @@ def build_upstream_headers(
 
 
 def extract_service_token(env_var_name: str | None) -> str | None:
-    """Read a service token from an environment variable.
+    """Read a service token from an allow-listed environment variable.
 
-    Returns:
-        The token string if the env var is set and non-empty, otherwise None.
+    P0: only ``PORTCULLIS_UPSTREAM_TOKEN_[A-Z0-9_]{1,64}`` names are honored.
+    Anything else returns None so a stale/malicious DB value cannot exfiltrate
+    arbitrary process env (DATABASE_URL, API_KEY_PEPPER, SSO secrets).
     """
     if not env_var_name:
+        return None
+    import re as _re
+
+    if _re.fullmatch(r"PORTCULLIS_UPSTREAM_TOKEN_[A-Z0-9_]{1,64}", env_var_name) is None:
         return None
     value = os.environ.get(env_var_name, "")
     return value if value else None

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { setToken } from "@/lib/auth";
+import { setToken, ensureCsrfCookie } from "@/lib/auth";
 
 /* ── SSO callback ───────────────────────────────────────────────── */
 
@@ -12,20 +12,50 @@ function SsoCallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // P0: backend no longer puts the API key in ?token= (leaks via history/logs).
+  // Support legacy ?token= for old backends, otherwise complete via HttpOnly cookie.
   const token = searchParams.get("token");
   const error = searchParams.get("error");
-  const status: "processing" | "error" | "done" =
-    error || (!token && searchParams.size > 0)
-      ? "error"
-      : token
-        ? "done"
-        : "processing";
+  const status: "processing" | "error" | "done" = error
+    ? "error"
+    : token
+      ? "done"
+      : "processing";
 
   useEffect(() => {
-    if (!token || error) return;
-    setToken(token);
-    router.replace("/dashboard");
-  }, [token, error, router]);
+    if (error) return;
+    if (token) {
+      setToken(token);
+      // P0: strip token from URL immediately so it never persists in history.
+      window.history.replaceState(null, "", "/sso-callback");
+      router.replace("/dashboard");
+      return;
+    }
+    // Cookie-only flow: backend set HttpOnly portcullis_auth; verify session.
+    // P3: mint the CSRF cookie too — cookie-authed mutations 403 without it.
+    ensureCsrfCookie();
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+        const res = await fetch(`${base}/auth/me`, {
+          credentials: "include",
+          headers: { Accept: "application/json" },
+        });
+        if (!cancelled && res.ok) {
+          router.replace("/dashboard");
+        } else if (!cancelled && searchParams.size > 0) {
+          router.replace("/login?error=sso_failed");
+        }
+        // Else stay in processing (direct navigation without SSO still pending).
+      } catch {
+        if (!cancelled && searchParams.size > 0) router.replace("/login?error=sso_failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, error, router, searchParams]);
 
   return (
     <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "var(--pc-bg)" }}>

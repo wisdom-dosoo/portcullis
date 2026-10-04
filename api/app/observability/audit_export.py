@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm import AuditLog
@@ -26,16 +25,19 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class AuditExportFilters:
-    """Filters for audit log export queries."""
+    """Filters for audit log export queries (P1: matches AuditLog ORM columns)."""
 
     start_date: datetime | None = None
     end_date: datetime | None = None
     tenant_id: Any | None = None
     subject_id: str | None = None
     subject_type: str | None = None
-    server_id: Any | None = None
+    server_slug: str | None = None
     rpc_method: str | None = None
     tool_name: str | None = None
+    outcome: str | None = None
+    # Back-compat aliases for older callers (server_id/status).
+    server_id: Any | None = None
     status: str | None = None
     limit: int = 10000
 
@@ -64,7 +66,7 @@ class AuditExportService:
         self._session = session
 
     async def _query_entries(self, filters: AuditExportFilters) -> list[dict[str, Any]]:
-        """Query audit log entries with the given filters."""
+        """Query audit log entries with the given filters (P1: correct columns)."""
         stmt = select(AuditLog)
 
         if filters.tenant_id is not None:
@@ -77,14 +79,16 @@ class AuditExportService:
             stmt = stmt.where(AuditLog.subject_id == filters.subject_id)
         if filters.subject_type is not None:
             stmt = stmt.where(AuditLog.subject_type == filters.subject_type)
-        if filters.server_id is not None:
-            stmt = stmt.where(AuditLog.server_id == filters.server_id)
+        server_slug = filters.server_slug or filters.server_id
+        if server_slug is not None:
+            stmt = stmt.where(AuditLog.server_slug == server_slug)
         if filters.rpc_method is not None:
             stmt = stmt.where(AuditLog.rpc_method == filters.rpc_method)
         if filters.tool_name is not None:
             stmt = stmt.where(AuditLog.tool_name == filters.tool_name)
-        if filters.status is not None:
-            stmt = stmt.where(AuditLog.status == filters.status)
+        outcome = filters.outcome or filters.status
+        if outcome is not None:
+            stmt = stmt.where(AuditLog.outcome == outcome)
 
         stmt = stmt.order_by(AuditLog.created_at.desc()).limit(filters.limit)
 
@@ -97,12 +101,14 @@ class AuditExportService:
                 "timestamp": row.created_at.isoformat() if row.created_at else None,
                 "tenant_id": str(row.tenant_id) if row.tenant_id else None,
                 "subject_id": row.subject_id,
-                "subject_type": row.subject_type.value if hasattr(row.subject_type, "value") else row.subject_type,
-                "server_id": str(row.server_id) if row.server_id else None,
+                "subject_type": row.subject_type.value
+                if hasattr(row.subject_type, "value")
+                else row.subject_type,
+                "server_slug": row.server_slug,
                 "rpc_method": row.rpc_method,
                 "tool_name": row.tool_name,
-                "status": row.status,
-                "latency_ms": row.latency_ms,
+                "outcome": row.outcome,
+                "client_ip": row.client_ip,
                 "request_id": row.request_id,
             }
             for row in rows
@@ -124,12 +130,12 @@ class AuditExportService:
             total_stmt = total_stmt.where(f)
         total = (await self._session.execute(total_stmt)).scalar() or 0
 
-        # Status breakdown
-        status_stmt = select(AuditLog.status, func.count(AuditLog.id))
+        # Outcome breakdown (P1: AuditLog.outcome, not .status).
+        outcome_stmt = select(AuditLog.outcome, func.count(AuditLog.id))
         for f in base_filter:
-            status_stmt = status_stmt.where(f)
-        status_stmt = status_stmt.group_by(AuditLog.status)
-        status_rows = (await self._session.execute(status_stmt)).all()
+            outcome_stmt = outcome_stmt.where(f)
+        outcome_stmt = outcome_stmt.group_by(AuditLog.outcome)
+        status_rows = (await self._session.execute(outcome_stmt)).all()
 
         summary = AuditExportSummary(total_events=total)
         for status_val, count in status_rows:
@@ -142,11 +148,14 @@ class AuditExportService:
                 summary.denied_rate_limit_count = count
             elif status_str == "error":
                 summary.error_count = count
+            elif status_str == "denied":
+                # Generic denial (RBAC or rate-limit) counted as RBAC denial.
+                summary.denied_rbac_count += count
 
         # Unique counts
         for col, attr in [
             (AuditLog.subject_id, "unique_subjects"),
-            (AuditLog.server_id, "unique_servers"),
+            (AuditLog.server_slug, "unique_servers"),
             (AuditLog.tool_name, "unique_tools"),
         ]:
             distinct_stmt = select(func.count(func.distinct(col)))
@@ -190,8 +199,8 @@ class AuditExportService:
                     "start_date": filters.start_date.isoformat() if filters.start_date else None,
                     "end_date": filters.end_date.isoformat() if filters.end_date else None,
                     "subject_id": filters.subject_id,
-                    "server_id": str(filters.server_id) if filters.server_id else None,
-                    "status": filters.status,
+                    "server_slug": filters.server_slug or filters.server_id,
+                    "outcome": filters.outcome or filters.status,
                 },
             },
             "summary": {
@@ -223,11 +232,10 @@ class AuditExportService:
         entries = await self._query_entries(filters)
         summary = await self._compute_summary(filters)
 
-        # Map events to SOC 2 criteria
-        access_events = [e for e in entries if e["status"] in ("denied_rbac",)]
-        boundary_events = [e for e in entries if e["status"] == "denied_rate_limit"]
-        monitoring_events = entries
-        anomaly_events = [e for e in entries if e["status"] == "error"]
+        # Map events to SOC 2 criteria (P1: outcome column, not status).
+        access_events = [e for e in entries if e["outcome"] in ("denied_rbac", "denied")]
+        boundary_events = [e for e in entries if e["outcome"] == "denied_rate_limit"]
+        anomaly_events = [e for e in entries if e["outcome"] == "error"]
 
         return {
             "report_type": "SOC 2 Trust Services Criteria - Audit Evidence",

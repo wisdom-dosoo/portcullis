@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session
@@ -43,11 +43,15 @@ async def create_role(
 async def list_roles(
     subject: Annotated[Subject, Depends(authenticated_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[RoleView]:
-    """List all roles for the current tenant."""
+    """List roles for the current tenant (P1: paginated)."""
     repo = RbacRepository(session)
     roles = await repo.list_roles(tenant_id=subject.tenant_id)
-    return [RoleView.model_validate(r) for r in roles]
+    response.headers["X-Total-Count"] = str(len(roles))
+    return [RoleView.model_validate(r) for r in roles[offset : offset + limit]]
 
 
 @router.post("/{role_id}/bindings", status_code=201, response_model=RoleBindingView)
@@ -95,8 +99,12 @@ async def delete_binding(
     subject: Annotated[Subject, Depends(admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
-    """Remove a role binding (admin only)."""
+    """Remove a role binding (admin only, P1: tenant-verified)."""
     repo = RbacRepository(session)
+    # P1: verify the role belongs to the caller's tenant before deleting.
+    role = await repo.get_role(tenant_id=subject.tenant_id, role_id=role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="Role not found")
     deleted = await repo.delete_binding(binding_id=binding_id, role_id=role_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Binding not found")
@@ -134,8 +142,11 @@ async def delete_permission(
     subject: Annotated[Subject, Depends(admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
-    """Remove a tool permission rule from a role (admin only)."""
+    """Remove a tool permission rule (admin only, P1: tenant-verified)."""
     repo = RbacRepository(session)
+    role = await repo.get_role(tenant_id=subject.tenant_id, role_id=role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="Role not found")
     deleted = await repo.delete_permission(permission_id=permission_id, role_id=role_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Permission not found")

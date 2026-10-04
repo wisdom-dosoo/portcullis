@@ -1,3 +1,4 @@
+{{- if .Values.monitoring.prometheusRules.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -322,3 +323,4 @@ spec:
           annotations:
             summary: "Portcullis suspicious API key usage ({{ $labels.key_prefix }})"
             description: "API key {{ $labels.key_prefix }} has {{ $value | humanize }}/s denied requests. Possible compromised key."
+{{- end }}

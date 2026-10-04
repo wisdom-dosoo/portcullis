@@ -35,7 +35,14 @@ async def authenticate(
             to clients verbatim.
     """
     if raw_token.startswith("pk_"):
-        return await verify_key(raw=raw_token, pepper=settings.api_key_pepper, session=session)
+        # P3: dual-pepper rotation window — new hashes use active_pepper,
+        # verification accepts both (see docs/secrets-rotation.md).
+        return await verify_key(
+            raw=raw_token,
+            pepper=settings.active_pepper,
+            session=session,
+            fallback_pepper=settings.api_key_pepper,
+        )
 
     if not settings.jwt_jwks_url:
         raise ValueError("invalid bearer token")

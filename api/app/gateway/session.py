@@ -22,9 +22,17 @@ logger = structlog.get_logger(__name__)
 SESSION_KEY_PREFIX = "mcp-session:"
 SESSION_TTL_SECONDS = 3600
 
+# P0: bound attacker-controlled session ids to prevent Redis key growth.
+SESSION_ID_RE = __import__("re").compile(r"^[A-Za-z0-9\-_]{8,128}$")
+
 
 def _session_key(session_id: str) -> str:
     return f"{SESSION_KEY_PREFIX}{session_id}"
+
+
+def is_valid_session_id(session_id: str) -> bool:
+    """Return True when the session id has an expected shape."""
+    return bool(SESSION_ID_RE.fullmatch(session_id))
 
 
 class SessionStore:
@@ -46,7 +54,14 @@ class SessionStore:
         subject_id: str,
         server_slug: str,
     ) -> None:
-        """Store or refresh the ownership mapping for a session id."""
+        """Store or refresh the ownership mapping for a session id.
+
+        P0: validates id shape; callers must have already verified ownership
+        (see ``claim_or_validate``) to prevent session fixation.
+        """
+        if not is_valid_session_id(session_id):
+            logger.warning("session.record_invalid_id")
+            return
         payload: dict[str, Any] = {
             "tenant_id": str(tenant_id),
             "subject_id": subject_id,
@@ -56,6 +71,47 @@ class SessionStore:
             _session_key(session_id),
             json.dumps(payload),
             ex=self._ttl_seconds,
+        )
+
+    async def claim_or_validate(
+        self,
+        session_id: str,
+        *,
+        tenant_id: UUID,
+        subject_id: str,
+        server_slug: str,
+    ) -> bool:
+        """Claim a new session id or validate ownership of an existing one.
+
+        Returns True when the caller owns the session (new claim via SET NX or
+        matching record). Returns False on fixation attempt (existing record
+        owned by someone else) or invalid id shape.
+        """
+        if not is_valid_session_id(session_id):
+            return False
+        payload: dict[str, Any] = {
+            "tenant_id": str(tenant_id),
+            "subject_id": subject_id,
+            "server_slug": server_slug,
+        }
+        try:
+            claimed = await self._redis.set(
+                _session_key(session_id),
+                json.dumps(payload),
+                ex=self._ttl_seconds,
+                nx=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.error("session.claim_redis_error", session_id=session_id)
+            return False
+        if claimed:
+            return True
+        existing = await self.lookup(session_id)
+        return matches(
+            existing,
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            server_slug=server_slug,
         )
 
     async def lookup(self, session_id: str) -> dict[str, str] | None:

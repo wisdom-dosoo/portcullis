@@ -92,8 +92,13 @@ async def verify_key(
     pepper: str,
     session: AsyncSession,
     ph: PasswordHasher | None = None,
+    fallback_pepper: str | None = None,
 ) -> Subject:
     """Verify a raw API key and return the authenticated Subject.
+
+    P3: when `fallback_pepper` differs, both are tried (rotation window).
+    Invalid keys cost up to 2 Argon2 verifies — acceptable behind pre-auth
+    rate limiting; valid keys short-circuit on the first match.
 
     Raises:
         ValueError: On any authentication failure (uniform message).
@@ -123,7 +128,13 @@ async def verify_key(
     try:
         hasher.verify(api_key.key_hash, secret + pepper)
     except (VerifyMismatchError, VerificationError):
-        raise ValueError("invalid API key")
+        if fallback_pepper and fallback_pepper != pepper:
+            try:
+                hasher.verify(api_key.key_hash, secret + fallback_pepper)
+            except (VerifyMismatchError, VerificationError):
+                raise ValueError("invalid API key")
+        else:
+            raise ValueError("invalid API key")
 
     subject = Subject(
         subject_id=str(api_key.id),
@@ -132,13 +143,19 @@ async def verify_key(
         scopes=frozenset(api_key.scopes),
     )
 
-    # Update last_used_at sequentially — sharing the session with create_task
-    # causes concurrent asyncpg operations on the same connection, which
-    # raises InterfaceError.  The extra ~1 ms is negligible next to Argon2.
-    # Commit explicitly: without it the update is rolled back when the request
-    # session closes and usage tracking would silently never persist.
-    await repo.update_last_used(api_key.id)
-    await session.commit()
+    # P3: throttle last_used writes to at most once per hour per key. The old
+    # code did update_last_used + commit on *every* proxied request — a second
+    # write + commit on the hot path alongside metering.
+    try:
+        from datetime import UTC, datetime
+
+        last_used = getattr(api_key, "last_used_at", None)
+        now = datetime.now(UTC)
+        if last_used is None or (now - last_used).total_seconds() >= 3600:
+            await repo.update_last_used(api_key.id)
+            await session.commit()
+    except Exception:
+        pass
 
     return subject
 

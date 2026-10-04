@@ -47,6 +47,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.monitor = monitor
     monitor_task = asyncio.create_task(monitor.start())
 
+    # P3: process-wide JWKS cache with pubsub invalidation (was per-request).
+    # Cluster mode has no pubsub semantics — start best-effort.
+    from app.auth.jwt_validator import JwksCache
+
+    jwks_cache = JwksCache(runtime.redis, settings.jwt_jwks_cache_ttl_seconds)
+    app.state.jwks_cache = jwks_cache
+    try:
+        await jwks_cache.start()
+    except Exception:  # noqa: BLE001 - cluster mode / tests without pubsub
+        logger.warning("jwks.cache_start_failed")
+
+    # P3: batched usage metering — aggregates per-request counters off the hot
+    # path (no per-request commit). Falls back to direct writes when stopped.
+    from app.usage_queue import get_usage_queue
+
+    get_usage_queue().start(runtime.session_factory)
+
     # Opt-in self-host telemetry: only runs when the operator enables it AND
     # points telemetry_endpoint_url at a receiving /v1/telemetry/heartbeat.
     telemetry_task = None
@@ -71,6 +88,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        from app.usage_queue import get_usage_queue
+
+        await get_usage_queue().stop()
+        try:
+            await app.state.jwks_cache.stop()
+        except Exception:  # noqa: BLE001
+            pass
         if telemetry_task is not None:
             await app.state.telemetry_reporter.stop()
             await telemetry_task
@@ -166,16 +190,31 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     application.add_middleware(MetricsMiddleware)
-    application.add_middleware(RequestIdMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins_tuple),
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        # P3: explicit headers (was "*" which reflects any header with
+        # credentials). Covers the gateway + dashboard contract.
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Accept",
+            "Mcp-Session-Id",
+            "X-Request-Id",
+            "X-CSRF-Token",
+        ],
     )
     application.add_middleware(OriginValidationMiddleware, settings=settings)
     application.add_middleware(ManagementApiRateLimitMiddleware)
+    # P3: cookie-session CSRF gate (Bearer requests bypass; see module docs).
+    from app.security.csrf import CookieCsrfMiddleware
+
+    application.add_middleware(CookieCsrfMiddleware)
+    # P3: RequestId outermost so 403/429 from outer gates still carry it
+    # (was inner to Origin/RateLimit — their rejections lacked the ID).
+    application.add_middleware(RequestIdMiddleware)
     application.include_router(health_router)
 
     from app.api.auth import router as auth_router
@@ -247,8 +286,12 @@ def create_app() -> FastAPI:
     if settings.metrics_enabled:
 
         @application.get("/metrics", include_in_schema=False)
-        async def prometheus_metrics() -> PlainResponse:
-            """Expose Prometheus metrics for scraping."""
+        async def prometheus_metrics(request: Request) -> PlainResponse:
+            """Expose Prometheus metrics (P3: optional bearer gate)."""
+            if settings.metrics_auth_token:
+                expected = f"Bearer {settings.metrics_auth_token}"
+                if request.headers.get("authorization", "") != expected:
+                    return PlainResponse(content="Unauthorized", status_code=401)
             body, content_type = metrics_response()
             return PlainResponse(content=body, media_type=content_type)
 

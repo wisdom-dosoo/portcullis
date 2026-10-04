@@ -1,5 +1,13 @@
 #!/bin/sh
-set -e
+set -eu
+
+: "${DATABASE_URL:?DATABASE_URL must be set}"
+: "${REDIS_URL:?REDIS_URL must be set}"
+# P2: workers/timeouts/proxy-headers are env-configurable (were hardcoded).
+# Keep default 1 worker: global prometheus_client registries undercount with
+# multiple workers unless PROMETHEUS_MULTIPROC_DIR is configured.
+UVICORN_WORKERS="${UVICORN_WORKERS:-1}"
+UVICORN_TIMEOUT="${UVICORN_TIMEOUT_KEEP_ALIVE:-75}"
 
 # Run Alembic migrations exactly once across a scaled deployment.
 #
@@ -34,4 +42,4 @@ async def run() -> int:
 raise SystemExit(asyncio.run(run()))
 PY
 
-exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1
+exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers "$UVICORN_WORKERS" --proxy-headers --forwarded-allow-ips '*' --timeout-keep-alive "$UVICORN_TIMEOUT"

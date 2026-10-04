@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, get_settings_dep
@@ -57,6 +57,31 @@ from app.repositories.users import UserRepository
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _set_session_cookie(response: object, token: str, settings: Settings) -> None:
+    """Set the HttpOnly session cookie (P3: email auth joins SSO cookie-only).
+
+    The plaintext token stays in the JSON body for programmatic API clients;
+    browsers additionally get the HttpOnly cookie so same-origin deployments
+    and the cookie-only SSO flow authenticate without localStorage. No-op when
+    token is empty (pending join requests).
+    """
+    if not token:
+        return
+    try:
+        is_production = settings.environment.value == "production"
+        response.set_cookie(  # type: ignore[attr-defined]
+            "portcullis_auth",
+            token,
+            max_age=60 * 60 * 24 * 30,
+            httponly=True,
+            samesite="lax",
+            secure=is_production,
+            path="/",
+        )
+    except Exception:
+        pass
+
+
 async def _issue_user_token(
     session: AsyncSession,
     user_id: UUID,
@@ -67,7 +92,7 @@ async def _issue_user_token(
     return await issue_key(
         name=f"user:{email}",
         scopes=[],
-        pepper=settings.api_key_pepper,
+        pepper=settings.active_pepper,
         session=session,
         tenant_id=DEFAULT_TENANT_ID,
         user_id=user_id,
@@ -79,6 +104,7 @@ async def register(
     body: RegisterRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    response: Response,
 ) -> AuthResponse:
     """Create a new user account and return a one-time access token.
 
@@ -91,7 +117,7 @@ async def register(
     if existing is not None:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
-    passwords = PasswordService(settings.api_key_pepper)
+    passwords = PasswordService(settings.active_pepper, fallback_pepper=settings.api_key_pepper)
     password_hash = passwords.hash_password(body.password)
 
     if body.flow == "invitation":
@@ -114,13 +140,17 @@ async def register(
 
     # For org creation (flow=create), enforce 2-organization limit for super admins
     if body.flow == "create":
-          # Check if user is a super admin (platform admin) and enforce 2-org limit
-          existing_user = await repo.get_by_email(DEFAULT_TENANT_ID, body.email)
-          if existing_user and existing_user.is_platform_admin and existing_user.created_org_count >= 2:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Super admin has reached the maximum limit of 2 organizations",
-                )
+        # Check if user is a super admin (platform admin) and enforce 2-org limit
+        existing_user = await repo.get_by_email(DEFAULT_TENANT_ID, body.email)
+        if (
+            existing_user
+            and existing_user.is_platform_admin
+            and existing_user.created_org_count >= 2
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Super admin has reached the maximum limit of 2 organizations",
+            )
 
     # For org creation (flow=create), assign org_owner role and set up default roles
     org_role = OrgRole.ORG_OWNER if body.flow == "create" else None
@@ -164,9 +194,11 @@ async def register(
     if body.flow == "create":
         await bind_owner_to_org_owner(session, DEFAULT_TENANT_ID, issued.key_id)
 
-    return AuthResponse(
+    auth = AuthResponse(
         access_token=issued.plaintext, token_type="bearer", user=UserView.model_validate(user)
     )
+    _set_session_cookie(response, auth.access_token, settings)
+    return auth
 
 
 async def _register_via_invite(
@@ -181,7 +213,11 @@ async def _register_via_invite(
     invites = InviteService()
     try:
         invitation = await invites.find_active(
-            session, DEFAULT_TENANT_ID, body.invite_code, settings.api_key_pepper
+            session,
+            DEFAULT_TENANT_ID,
+            body.invite_code,
+            settings.active_pepper,
+            fallback_pepper=settings.api_key_pepper,
         )
     except InviteLookupError:
         raise HTTPException(status_code=401, detail="Invalid or expired invitation code")
@@ -228,6 +264,7 @@ async def login(
     body: LoginRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    response: Response,
 ) -> AuthResponse:
     """Authenticate an existing user and return a one-time access token."""
     repo = UserRepository(session)
@@ -242,14 +279,16 @@ async def login(
     if user.approval_status is UserApprovalStatus.REJECTED:
         raise HTTPException(status_code=403, detail="Your account has been denied.")
 
-    passwords = PasswordService(settings.api_key_pepper)
+    passwords = PasswordService(settings.active_pepper, fallback_pepper=settings.api_key_pepper)
     if not passwords.verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     issued = await _issue_user_token(session, user.id, user.email, settings)
-    return AuthResponse(
+    auth = AuthResponse(
         access_token=issued.plaintext, token_type="bearer", user=UserView.model_validate(user)
     )
+    _set_session_cookie(response, auth.access_token, settings)
+    return auth
 
 
 @router.get("/me", response_model=UserView)
@@ -327,7 +366,7 @@ async def create_invite(
         session=session,
         tenant_id=subject.tenant_id,
         org_name=body.org_name,
-        pepper=settings.api_key_pepper,
+        pepper=settings.active_pepper,
         created_by=await _acting_user_id(session, subject),
         email=body.email,
         expires_in_days=body.expires_in_days,
@@ -343,11 +382,16 @@ async def create_invite(
 async def list_invites(
     subject: Annotated[Subject, Depends(admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[InviteView]:
-    """List all invitations for the tenant (admin only)."""
+    """List invitations for the tenant (P3: paginated, admin only)."""
     repo = InvitationRepository(session)
     invitations = await repo.list(subject.tenant_id)
-    return [InviteView.model_validate(i) for i in invitations]
+    response.headers["X-Total-Count"] = str(len(invitations))
+    page = invitations[offset : offset + limit]
+    return [InviteView.model_validate(i) for i in page]
 
 
 @router.post("/invites/{invite_id}/revoke", status_code=204)
@@ -367,11 +411,15 @@ async def revoke_invite(
 async def list_pending_users(
     subject: Annotated[Subject, Depends(admin_subject)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[UserView]:
-    """List users awaiting join-request approval (admin only)."""
+    """List users awaiting approval (P3: paginated, admin only)."""
     repo = UserRepository(session)
     users = await repo.list_by_status(subject.tenant_id, UserApprovalStatus.PENDING)
-    return [UserView.model_validate(u) for u in users]
+    response.headers["X-Total-Count"] = str(len(users))
+    return [UserView.model_validate(u) for u in users[offset : offset + limit]]
 
 
 @router.post("/pending-users/{user_id}/approve", response_model=UserView)
@@ -460,11 +508,15 @@ async def create_team(
 async def list_teams(
     session: Annotated[AsyncSession, Depends(get_session)],
     _subject: Annotated[Subject, Depends(authenticated_subject)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[TeamView]:
-    """List all teams in the organization."""
+    """List teams in the organization (P3: paginated)."""
     repo = TeamRepository(session)
     teams = await repo.list(_subject.tenant_id)
-    return [await _team_view(repo, t) for t in teams]
+    response.headers["X-Total-Count"] = str(len(teams))
+    return [await _team_view(repo, t) for t in teams[offset : offset + limit]]
 
 
 @router.get("/teams/{team_id}", response_model=TeamView)
@@ -569,6 +621,7 @@ async def add_server_to_team(
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
     from app.repositories.servers import ServerRepository  # noqa: F401 - keep import for type hints
+
     # Actually need to get by ID
     from sqlalchemy import select
 
@@ -656,11 +709,15 @@ async def create_member(
 async def list_members(
     session: Annotated[AsyncSession, Depends(get_session)],
     _subject: Annotated[Subject, Depends(authenticated_subject)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[OrgMemberView]:
-    """List all org members."""
+    """List org members (P3: paginated)."""
     repo = OrgMemberRepository(session)
     members = await repo.list(_subject.tenant_id)
-    return [OrgMemberView.model_validate(m) for m in members]
+    response.headers["X-Total-Count"] = str(len(members))
+    return [OrgMemberView.model_validate(m) for m in members[offset : offset + limit]]
 
 
 @router.get("/members/{member_id}", response_model=OrgMemberView)
@@ -761,8 +818,12 @@ async def list_team_members(
     team_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     _subject: Annotated[Subject, Depends(authenticated_subject)],
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[OrgMemberView]:
-    """List all members of a team."""
+    """List members of a team (P3: paginated)."""
     repo = OrgMemberRepository(session)
     members = await repo.get_by_team(_subject.tenant_id, team_id)
-    return [OrgMemberView.model_validate(m) for m in members]
+    response.headers["X-Total-Count"] = str(len(members))
+    return [OrgMemberView.model_validate(m) for m in members[offset : offset + limit]]

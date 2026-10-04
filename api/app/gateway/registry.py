@@ -9,15 +9,68 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.licenses import LicenseEntitlementError, require_license
 from app.config import Settings
+from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import ServerAuthMode, ServerTransport
 from app.models.schemas import ServerCreate, ServerUpdate, ServerView
 from app.repositories.servers import ServerRepository
-from app.constants import DEFAULT_TENANT_ID
 from app.security.upstreams import validate_upstream_url
 
 
 class SlugConflictError(ValueError):
     """Raised when a server slug already exists in the registry."""
+
+
+def _validate_token_env_allowlist(value: str | None) -> None:
+    """Defense-in-depth allow-list check (schemas already validate).
+
+    Raises ValueError for non-conforming names so direct service calls cannot
+    bypass Pydantic validation.
+    """
+    if value is None:
+        return
+    import re as _re
+
+    if _re.fullmatch(r"PORTCULLIS_UPSTREAM_TOKEN_[A-Z0-9_]{1,64}", value) is None:
+        raise ValueError(
+            "service_token_env_var must match 'PORTCULLIS_UPSTREAM_TOKEN_[A-Z0-9_]{1,64}'"
+        )
+
+
+def _validate_bridge_command(value: str) -> None:
+    """Reject shell metacharacters (P3: exec is shell-less argv, no pipelines).
+
+    The bridge runs `create_subprocess_exec(*argv)` with no shell, so `;`,
+    `$()`, backticks, and pipes are never interpreted — but they signal a
+    caller that misunderstands the interface (or probes for injection). Fail
+    fast with a clear message instead of spawning a confusing binary name.
+    """
+    import shlex as _shlex
+
+    try:
+        argv = _shlex.split(value)
+    except ValueError as exc:
+        raise ValueError(f"bridge_command does not parse: {exc}") from exc
+    if not argv:
+        raise ValueError("bridge_command must name an executable")
+    if len(value) > 2000:
+        raise ValueError("bridge_command is too long")
+    for token in argv:
+        if any(c in token for c in (";", "|", "&", "$", "`", "\n", "\r")):
+            raise ValueError("bridge_command must be a plain argv string (no shell syntax)")
+
+
+def _to_view(server: object) -> ServerView:
+    """Build a write-only-safe ServerView (ssl_configured boolean, no PEM)."""
+    view = ServerView.model_validate(server)
+    try:
+        view.ssl_configured = bool(
+            getattr(server, "ssl_ca", None)
+            or getattr(server, "ssl_cert", None)
+            or getattr(server, "ssl_key", None)
+        )
+    except Exception:  # noqa: BLE001, S110 - default False on odd mocks
+        pass
+    return view
 
 
 class RegistryService:
@@ -44,11 +97,23 @@ class RegistryService:
             self._settings.upstream_hosts_tuple,
             self._settings.environment,
         )
+        _validate_token_env_allowlist(command.service_token_env_var)
 
         if command.transport == ServerTransport.STDIO_BRIDGE:
+            # P3: stdio bridges spawn local subprocesses from bridge_command.
+            # Disabled unless the operator opts in (any Developer can otherwise
+            # register servers and turn the command into local code execution
+            # on whoever runs the bridge worker).
+            if not self._settings.stdio_bridge_enabled:
+                raise ValueError(
+                    "stdio_bridge transport is disabled (set STDIO_BRIDGE_ENABLED=true to opt in)"
+                )
             if not command.bridge_command:
                 raise ValueError("bridge_command is required when transport is 'stdio_bridge'")
-        elif command.auth_mode == ServerAuthMode.SERVICE_TOKEN and not command.service_token_env_var:
+            _validate_bridge_command(command.bridge_command)
+        elif (
+            command.auth_mode == ServerAuthMode.SERVICE_TOKEN and not command.service_token_env_var
+        ):
             raise ValueError("service_token_env_var is required when auth_mode is 'service_token'")
 
         # Enforce license entitlement before allowing a new server registration.
@@ -69,13 +134,13 @@ class RegistryService:
             await self._session.rollback()
             raise SlugConflictError(f"A server with slug '{command.slug}' already exists") from exc
 
-        return ServerView.model_validate(server)
+        return _to_view(server)
 
     async def list(self, tenant_id: UUID | None = None) -> list[ServerView]:
         """Return all registered MCP servers for the given tenant."""
         tid = tenant_id if tenant_id is not None else self._tenant_id
         servers = await self._repo.list(tid)
-        return [ServerView.model_validate(s) for s in servers]
+        return [_to_view(s) for s in servers]
 
     async def get(self, slug: str, tenant_id: UUID | None = None) -> ServerView:
         """Return the MCP server with the given slug.
@@ -87,7 +152,7 @@ class RegistryService:
         server = await self._repo.get_by_slug(tid, slug)
         if server is None:
             raise KeyError(f"Server '{slug}' not found")
-        return ServerView.model_validate(server)
+        return _to_view(server)
 
     async def update(
         self, slug: str, command: ServerUpdate, tenant_id: UUID | None = None
@@ -124,6 +189,7 @@ class RegistryService:
         )
         if final_auth_mode == ServerAuthMode.SERVICE_TOKEN and not final_token_env:
             raise ValueError("service_token_env_var is required when auth_mode is 'service_token'")
+        _validate_token_env_allowlist(final_token_env)
 
         try:
             server = await self._repo.update(server, command)
@@ -132,7 +198,7 @@ class RegistryService:
             await self._session.rollback()
             raise SlugConflictError(f"A server with slug '{command.slug}' already exists") from exc
 
-        return ServerView.model_validate(server)
+        return _to_view(server)
 
     async def delete(self, slug: str, tenant_id: UUID | None = None) -> None:
         """Delete an MCP server and its exact-slug tool permissions.

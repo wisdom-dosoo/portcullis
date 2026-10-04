@@ -813,6 +813,12 @@ limit?: number;
 offset?: number;
 event_type?: AuditEventType | null;
 server_slug?: string | null;
+// P1: backend supports these; previously omitted from the generated client
+// (spec drift) so admin/audit pages dropped subject/outcome/date filters.
+subject_id?: string | null;
+outcome?: string | null;
+start_date?: string | null;
+end_date?: string | null;
 };
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];

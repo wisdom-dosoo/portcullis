@@ -101,7 +101,9 @@ class ProvisioningService:
         if owner_password is None:
             owner_password = secrets.token_urlsafe(16)
 
-        password_hash = PasswordService(settings.api_key_pepper).hash_password(owner_password)
+        password_hash = PasswordService(
+            settings.active_pepper, fallback_pepper=settings.api_key_pepper
+        ).hash_password(owner_password)
 
         # Enforce 2-organization limit for platform admins (live production guard)
         if issuer_id is not None:
@@ -117,7 +119,9 @@ class ProvisioningService:
                 issuer = result.first()
             if issuer is not None and getattr(issuer, "is_platform_admin", False):
                 if getattr(issuer, "created_org_count", 0) >= 2:
-                    raise ProvisioningError("Super admin has reached the maximum limit of 2 organizations")
+                    raise ProvisioningError(
+                        "Super admin has reached the maximum limit of 2 organizations"
+                    )
 
         tenant = Tenant(
             id=uuid4(),
@@ -131,7 +135,11 @@ class ProvisioningService:
         except Exception as exc:  # IntegrityError from concurrent slug race
             from sqlalchemy.exc import IntegrityError
 
-            if isinstance(exc, IntegrityError) or "unique" in str(exc).lower() or "uq_tenants_slug" in str(exc):
+            if (
+                isinstance(exc, IntegrityError)
+                or "unique" in str(exc).lower()
+                or "uq_tenants_slug" in str(exc)
+            ):
                 raise ProvisioningError(f"tenant slug already in use: {slug}") from exc
             raise
 
@@ -146,7 +154,9 @@ class ProvisioningService:
                 result = await session.scalars(select(User).where(User.id == issuer_id))
                 issuer_user = result.first()
                 if issuer_user is not None and getattr(issuer_user, "is_platform_admin", False):
-                    issuer_user.created_org_count = (getattr(issuer_user, "created_org_count", 0) or 0) + 1
+                    issuer_user.created_org_count = (
+                        getattr(issuer_user, "created_org_count", 0) or 0
+                    ) + 1
                     session.add(
                         SuperAdminOrganization(
                             super_admin_id=issuer_id,
@@ -185,7 +195,7 @@ class ProvisioningService:
         issued = await issue_key(
             name=f"user:{owner.email}",
             scopes=[],
-            pepper=settings.api_key_pepper,
+            pepper=settings.active_pepper,
             session=session,
             tenant_id=tenant.id,
             user_id=owner.id,

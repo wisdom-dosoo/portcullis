@@ -165,208 +165,12 @@ function mapAuditLog(l: AuditLogView, idx: number): OrgEvent {
   };
 }
 
-/* ── synthetic org admin events ──────────────────────────────────────────── */
-
-const SYNTHETIC_EVENTS: OrgEvent[] = [
-  {
-    id: "synth-inv-1",
-    category: "invitation",
-    action: "User invited",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "dev@example.com",
-    resourceType: "user",
-    prevValue: "—",
-    newValue: "invited",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 1_800_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-inv-001",
-    reason: "Invited as Developer",
-    raw: null,
-  },
-  {
-    id: "synth-role-1",
-    category: "role",
-    action: "Role assigned",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "key_abc123",
-    resourceType: "api_key",
-    prevValue: "ReadOnly",
-    newValue: "Developer",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 3_600_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-role-001",
-    reason: "Promotion approved by org admin",
-    raw: null,
-  },
-  {
-    id: "synth-key-1",
-    category: "api_key",
-    action: "API key created",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "ci-pipeline-key",
-    resourceType: "api_key",
-    prevValue: "—",
-    newValue: "active",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 7_200_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-key-001",
-    reason: "CI/CD automation key for staging",
-    raw: null,
-  },
-  {
-    id: "synth-key-2",
-    category: "api_key",
-    action: "API key revoked",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "old-dev-key",
-    resourceType: "api_key",
-    prevValue: "active",
-    newValue: "revoked",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 86_400_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-key-002",
-    reason: "Employee offboarding",
-    raw: null,
-  },
-  {
-    id: "synth-pol-1",
-    category: "policy",
-    action: "Policy created",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "rate-limit-prod",
-    resourceType: "policy",
-    prevValue: "—",
-    newValue: "100 req/min",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 172_800_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-pol-001",
-    reason: "Applied to production servers",
-    raw: null,
-  },
-  {
-    id: "synth-pol-2",
-    category: "policy",
-    action: "Policy activated",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "rate-limit-prod",
-    resourceType: "policy",
-    prevValue: "draft",
-    newValue: "active",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 170_000_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-pol-002",
-    reason: "—",
-    raw: null,
-  },
-  {
-    id: "synth-srv-1",
-    category: "server",
-    action: "Server registered",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "production-mcp",
-    resourceType: "server",
-    prevValue: "—",
-    newValue: "active",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 259_200_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-srv-001",
-    reason: "New MCP server onboarded",
-    raw: null,
-  },
-  {
-    id: "synth-srv-2",
-    category: "server",
-    action: "Server config changed",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "staging-mcp",
-    resourceType: "server",
-    prevValue: "http://old-host:8080",
-    newValue: "http://new-host:8080",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 345_600_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-srv-002",
-    reason: "Upstream host migration",
-    raw: null,
-  },
-  {
-    id: "synth-tool-1",
-    category: "tool",
-    action: "Tool disabled",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "staging-mcp/delete_database",
-    resourceType: "tool",
-    prevValue: "enabled",
-    newValue: "disabled",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 432_000_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-tool-001",
-    reason: "High-risk tool disabled pending security review",
-    raw: null,
-  },
-  {
-    id: "synth-billing-1",
-    category: "billing",
-    action: "Plan upgraded",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "subscription",
-    resourceType: "billing",
-    prevValue: "Starter",
-    newValue: "Pro",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 604_800_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-billing-001",
-    reason: "Monthly billing cycle",
-    raw: null,
-  },
-  {
-    id: "synth-int-1",
-    category: "integration",
-    action: "Integration connected",
-    actor: "admin@example.com",
-    actorType: "user",
-    resource: "slack-alerts",
-    resourceType: "integration",
-    prevValue: "—",
-    newValue: "connected",
-    outcome: "success",
-    timestamp: new Date(Date.now() - 691_200_000).toISOString(),
-    ip: "192.168.1.10",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    requestId: "req-int-001",
-    reason: "Slack webhook for critical alerts",
-    raw: null,
-  },
-];
+/* ── org admin events ────────────────────────────────────────────────────────
+ * P1: removed 11 hardcoded SYNTHETIC_EVENTS (admin@example.com/192.168.1.10).
+ * The audit page now shows only real gateway API events. Org-level admin
+ * activity will appear here once the backend exposes it; fabricating
+ * compliance-critical rows is worse than showing an empty state.
+ */
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -868,12 +672,17 @@ function WebhookModal({ onClose }: { onClose: () => void }) {
 const PAGE_SIZE = 50;
 
 export default function AuditPage() {
-  const logsQuery = useListAuditLogsV1AuditGet({ limit: 200 });
+  // P1: server-side pagination (was hardcoded limit:200, broke beyond 200 rows).
+  const [page, setPage] = useState(0);
+  const logsQuery = useListAuditLogsV1AuditGet({
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+  });
   const logs = (logsQuery.data?.data ?? []) as AuditLogView[];
 
   const allEvents = useMemo<OrgEvent[]>(() => {
     const api = logs.map(mapAuditLog);
-    return [...SYNTHETIC_EVENTS, ...api].sort(
+    return [...api].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
   }, [logs]);
@@ -887,7 +696,6 @@ export default function AuditPage() {
   const [showSaveName, setShowSaveName] = useState(false);
   const [selected, setSelected] = useState<OrgEvent | null>(null);
   const [showWebhook, setShowWebhook] = useState(false);
-  const [page, setPage] = useState(0);
 
   function setFilter<K extends keyof FilterState>(key: K, val: FilterState[K]) {
     setFilters((prev) => ({ ...prev, [key]: val }));
@@ -916,8 +724,10 @@ export default function AuditPage() {
     return r;
   }, [allEvents, filters]);
 
-  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  // P1: server already paged via limit/offset; client filters apply to the
+  // fetched page. `page` advances the server offset (see logsQuery above).
+  const paged = filtered;
+  const totalPages = page + 1 + (logs.length >= PAGE_SIZE ? 1 : 0);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -1450,9 +1260,8 @@ export default function AuditPage() {
       <div style={{ fontSize: 12, color: "var(--pc-muted)", marginBottom: 10 }}>
         {logsQuery.isLoading
           ? "Loading API events…"
-          : `${filtered.length} events · ${SYNTHETIC_EVENTS.length} org admin · ${logs.length} gateway API`}
-        {filtered.length !== allEvents.length &&
-          ` — filtered from ${allEvents.length}`}
+          : `${filtered.length} events on page ${page + 1} · ${logs.length} gateway API`}
+        {` — server paged (limit ${PAGE_SIZE}, offset ${page * PAGE_SIZE})`}
       </div>
 
       {/* ── table ── */}

@@ -101,7 +101,7 @@ async def _create_admin_key(name: str) -> None:
             issued = await issue_key(
                 name=name,
                 scopes=["admin"],
-                pepper=settings.api_key_pepper,
+                pepper=settings.active_pepper,
                 session=session,
                 tenant_id=DEFAULT_TENANT_ID,
             )
@@ -131,7 +131,7 @@ async def _bootstrap_admin(email: str) -> None:
             issued = await issue_key(
                 name=f"user:{user.email}",
                 scopes=[],
-                pepper=settings.api_key_pepper,
+                pepper=settings.active_pepper,
                 session=session,
                 tenant_id=DEFAULT_TENANT_ID,
                 user_id=user.id,
@@ -209,7 +209,15 @@ def _run_stdio_bridge(args: argparse.Namespace) -> None:
     from app.gateway.stdio_bridge import main as bridge_main
     import sys
 
-    sys.argv = ["stdio-bridge", "--command", *args.command, "--port", str(args.port), "--host", args.host]
+    sys.argv = [
+        "stdio-bridge",
+        "--command",
+        *args.command,
+        "--port",
+        str(args.port),
+        "--host",
+        args.host,
+    ]
     bridge_main()
 
 

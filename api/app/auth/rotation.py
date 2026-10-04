@@ -76,11 +76,11 @@ class ApiKeyRotationService:
             if not old_key:
                 raise ValueError(f"Key {key_id} not found")
 
-            # Issue new key with same scopes
+            # Issue new key with same scopes (P3: active pepper for rotation)
             new_key = await issue_key(
                 name=f"{old_key.name} (rotated)",
                 scopes=list(old_key.scopes),
-                pepper=self._settings.api_key_pepper,
+                pepper=self._settings.active_pepper,
                 session=session,
                 tenant_id=old_key.tenant_id,
                 user_id=old_key.user_id,

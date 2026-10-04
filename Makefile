@@ -38,8 +38,29 @@ test-unit: ## Run unit tests only
 test-integration: ## Run integration tests (requires Docker infra)
 	cd api && pytest tests/integration -v
 
+test-contract: ## Run JSON-RPC + OpenAPI contract tests
+	cd api && pytest tests/contract -v
+
+test-e2e: ## Run operator-journey e2e (mocked, no infra)
+	cd api && pytest tests/e2e -v -k "not compose_smoke"
+
 test-cov: ## Run tests with coverage report
 	cd api && pytest --cov=app --cov-report=term-missing --cov-report=html
+
+smoke: ## True black-box smoke (compose up → HTTP → down)
+	docker compose up -d --build postgres redis portcullis
+	@echo "Waiting for gateway health…"
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+	  (curl -sf http://localhost:8080/healthz >/dev/null && break) || sleep 5; \
+	done
+	cd api && SMOKE_BASE_URL=http://localhost:8080 pytest tests/e2e/test_compose_smoke.py -v
+	docker compose down
+
+openapi: ## Regenerate checked-in OpenAPI snapshot (api + web copy)
+	cd api && python scripts/regen_openapi.py
+
+openapi-check: ## Fail if checked-in OpenAPI snapshot is stale
+	cd api && python scripts/regen_openapi.py --check
 
 # ── Linting & Type Checking ───────────────────────────────────────
 
@@ -69,6 +90,9 @@ pre-commit-run: ## Run pre-commit on all files
 
 migrate: ## Run Alembic migrations
 	cd api && alembic upgrade head
+
+migrate-sql: ## Print pending SQL without touching the DB (offline review)
+	cd api && alembic upgrade head --sql
 
 migrate-new: ## Create new migration (usage: make migrate-new MSG="add foobar")
 	cd api && alembic revision --autogenerate -m "$(MSG)"
