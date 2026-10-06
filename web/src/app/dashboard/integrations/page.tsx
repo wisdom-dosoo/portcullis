@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { DemoBanner } from "@/components/demo-banner";
 import {
   Puzzle,
   Search,
@@ -853,10 +854,7 @@ export default function IntegrationsPage() {
         color: "var(--pc-foreground)",
       }}
     >
-      <div className="rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2 mb-4" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
-        <span style={{ fontWeight: 600 }}>Demo</span>
-        <span style={{ color: "var(--pc-muted)" }}>— integrations are UI-only — connections are not persisted.</span>
-      </div>
+      <DemoBanner mode="local-only" local="Integration connections are UI-only and are not persisted." />
       {/* header */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>

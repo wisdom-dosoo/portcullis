@@ -4,7 +4,7 @@ import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import NavShell, { type NavSection } from "@/components/nav-shell";
 import { PortcullisLoader } from "@/components/loading-state";
-import { isAuthenticated } from "@/lib/auth";
+import { isAuthenticated, verifySession } from "@/lib/auth";
 import { usePlatformAdminMeAdminPlatformMeGet } from "@/api/generated";
 import {
   LayoutDashboard,
@@ -77,11 +77,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [adminResp.isSuccess, isPlatformAdmin, router]);
 
-  // Not authenticated at all → login.
+  // Not authenticated at all → verify server-side, then login.
+  // isAuthenticated() is only the synchronous hint (guard cookie / tab key);
+  // the backend is authoritative. A forged guard cookie fails closed here.
   useEffect(() => {
-    if (typeof window !== "undefined" && !isAuthenticated()) {
+    if (typeof window === "undefined") return;
+    if (!isAuthenticated()) {
       router.replace("/login");
+      return;
     }
+    let cancelled = false;
+    verifySession().then((ok) => {
+      if (!ok && !cancelled) router.replace("/login?reason=expired");
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   if (!isAuthenticated() || adminResp.isLoading || adminResp.isFetching) {

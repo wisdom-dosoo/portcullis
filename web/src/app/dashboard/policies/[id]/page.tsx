@@ -970,7 +970,8 @@ function ActivityTab({ policy, auditLogs }: { policy: RateLimitPolicyView; audit
 /* ── tab: versions ───────────────────────────────────────────────────────── */
 
 function VersionsTab({ policy }: { policy: RateLimitPolicyView }) {
-  const mockVersions = [
+  // Ship-checklist: derived from the live policy record — not random data.
+  const versions = [
     { version: "v1 (current)", date: policy.updated_at, change: "Last saved configuration", author: "you" },
     { version: "v0 (original)", date: policy.created_at, change: "Policy created", author: "you" },
   ];
@@ -996,7 +997,7 @@ function VersionsTab({ policy }: { policy: RateLimitPolicyView }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {mockVersions.map((v, i) => (
+          {versions.map((v, i) => (
           <div
             key={v.version}
             style={{

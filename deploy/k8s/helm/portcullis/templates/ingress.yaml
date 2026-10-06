@@ -18,3 +18,51 @@ spec:
   rules:
     {{- toYaml .Values.ingress.hosts | nindent 4 }}
 {{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.managementAllowlist }}
+---
+# Ship-checklist: management-plane restriction. /mcp/* stays open to
+# authenticated agents; /v1/*, /auth/*, /metrics are allow-listed to operators.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "portcullis.fullname" . }}-management
+  labels:
+    {{- include "portcullis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: management
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/allowlist-source-range: {{ .Values.ingress.managementAllowlist | quote }}
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+  {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "portcullis.fullname" $ }}
+                port: { number: 8080 }
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "portcullis.fullname" $ }}
+                port: { number: 8080 }
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "portcullis.fullname" $ }}
+                port: { number: 8080 }
+  {{- end }}
+{{- end }}

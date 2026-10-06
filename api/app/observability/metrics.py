@@ -89,6 +89,20 @@ LICENSE_EXPIRES_AT_TIMESTAMP = Gauge(
     ["tenant_id"],
 )
 
+# Audit durability — ship-checklist: alert when Postgres writes fail and the
+# file DLQ is absorbing events (backup your DLQ spill path with a log agent).
+AUDIT_WRITE_FAILURES = Counter(
+    "portcullis_audit_write_failures_total",
+    "Audit DB writes that fell back to the file DLQ",
+    [],
+)
+
+AUDIT_DLQ_SPILLS = Counter(
+    "portcullis_audit_dlq_spills_total",
+    "Audit events spilled to the file DLQ",
+    ["result"],  # "ok" | "failed"
+)
+
 
 def metrics_response() -> tuple[bytes, str]:
     """Return ``(body_bytes, content_type)`` ready for a ``/metrics`` response."""

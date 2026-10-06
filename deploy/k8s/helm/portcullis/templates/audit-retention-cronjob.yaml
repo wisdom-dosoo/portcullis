@@ -1,0 +1,43 @@
+{{- if and .Values.backup.enabled (gt (.Values.audit.retentionDays | int) 0) }}
+# Ship-checklist: audit lifecycle. Exports MUST be taken before pruning —
+# see docs/operations/restore-drill.md. Runs the prune + chain-verify script.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "portcullis.fullname" . }}-audit-retention
+  labels:
+    {{- include "portcullis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: audit-retention
+spec:
+  schedule: "0 3 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "portcullis.serviceAccountName" . }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: retention
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "scripts/audit_retention.py", "--prune", "--verify"]
+              envFrom:
+                - configMapRef:
+                    name: {{ include "portcullis.fullname" . }}-config
+                {{- if .Values.secrets.existingSecret }}
+                - secretRef:
+                    name: {{ .Values.secrets.existingSecret }}
+                {{- else }}
+                - secretRef:
+                    name: {{ include "portcullis.fullname" . }}-secrets
+                {{- end }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+{{- end }}

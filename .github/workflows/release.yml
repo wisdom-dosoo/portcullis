@@ -59,6 +59,22 @@ jobs:
           # P3: supply-chain provenance (SLSA via buildkit attestations).
           sbom: true
           provenance: mode=max
+      # Ship-checklist: web is a separate artifact — version it with the API
+      # so Helm `tag: ""` (Chart.AppVersion) resolves identically for both.
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://portcullis.yourdomain.com
+          tags: |
+            ghcr.io/${{ github.repository }}-web:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}-web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
       - name: Sign images with cosign (keyless)
         run: |
           cosign sign --yes \

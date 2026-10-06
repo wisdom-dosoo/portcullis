@@ -285,6 +285,21 @@ spec:
             summary: "Portcullis license expiring within 7 days"
             description: "License for tenant {{ $labels.tenant_id }} expires in {{ $value | humanizeDuration }}. Renew to avoid service disruption."
 
+    - name: portcullis.audit
+      interval: 60s
+      rules:
+        - alert: PortcullisAuditWriteFailing
+          expr: |
+            sum(rate(portcullis_audit_write_failures_total[5m])) > 0.5
+          for: 2m
+          labels:
+            severity: critical
+            component: audit
+          annotations:
+            summary: "Portcullis audit DB writes failing — DLQ absorbing events"
+            description: "Audit write failures: {{ $value | humanize }}/s. Check Postgres and replay the DLQ (scripts/audit_dlq_replay.py). Unreplayed DLQ = compliance gap."
+            runbook_url: "https://github.com/wisdom-dosoo/portcullis/blob/main/docs/operations/restore-drill.md"
+
     - name: portcullis.security
       interval: 60s
       rules:

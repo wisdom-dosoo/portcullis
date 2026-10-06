@@ -5,7 +5,10 @@ replicaCount: 2
 image:
   repository: ghcr.io/wisdom-dosoo/portcullis
   pullPolicy: IfNotPresent
-  tag: "latest"
+  # Ship-checklist: empty = Chart.AppVersion (pinned release tag, e.g. 0.8.0).
+  # Never ship "latest" to production — it is not immutable and breaks
+  # rollbacks. Release CI tags :<version> + :<sha>; pin one of those here.
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -43,11 +46,12 @@ service:
   annotations:
     prometheus.io/scrape: "true"
 
-# P2 (v1.3 roadmap): cert-manager TLS automation. When enabled, a Certificate
-# is created for every ingress host using the given ClusterIssuer/Issuer.
+# Ship-checklist: cert-manager TLS automation. Enabled by default — override
+# hosts/issuer for your domain (the yourdomain.com placeholders fail closed in
+# CI lint if left unchanged; see NOTES.txt).
 tls:
   certManager:
-    enabled: false
+    enabled: true
     issuerKind: ClusterIssuer
     issuerName: letsencrypt-prod
     secretName: ""
@@ -60,15 +64,16 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-body-size: "1m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
   hosts:
-    - host: portcullis.example.com
+    - host: portcullis.yourdomain.com
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: portcullis-tls
       hosts:
-        - portcullis.example.com
+        - portcullis.yourdomain.com
 
 resources:
   limits:
@@ -126,7 +131,10 @@ topologySpreadConstraints: []
 config:
   environment: production
   logLevel: INFO
-  corsAllowedOrigins: "https://portcullis.example.com"
+  # Ship-checklist: ingress/LB CIDRs trusted for X-Forwarded-For. `*` is
+  # rejected in production (see config.py) — set your NLB/ingress ranges.
+  forwardedAllowIps: "10.0.0.0/8"
+  corsAllowedOrigins: "https://portcullis.yourdomain.com"
   upstreamAllowedHosts: "localhost,127.0.0.1"
   upstreamConnectTimeoutSeconds: 5.0
   upstreamReadTimeoutSeconds: 30.0
@@ -217,6 +225,30 @@ secrets:
   jwtIssuer: ""
   jwtAudience: "portcullis"
   ssoOidcClientSecret: ""
+  # Ship-checklist: gate /metrics with `Authorization: Bearer <token>`.
+  # Empty preserves legacy network-restricted behavior — set in production.
+  metricsAuthToken: ""
+  # Ship-checklist: direct (non-PgBouncer) DB URL for the migrate Job.
+  # Required when postgresql.pgbouncer is enabled; advisory locks do not
+  # survive transaction pooling. Same format as DATABASE_URL.
+  databaseDirectUrl: ""
+
+# Schema migrations — PgBouncer-safe.
+# When enabled, app pods skip in-pod Alembic (SKIP_MIGRATIONS=1) and a
+# pre-upgrade Helm Job migrates once against the direct DB URL.
+migration:
+  enabled: true
+  skipInPods: "1"
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+
+# Audit log lifecycle.
+audit:
+  retentionDays: 400
+  # DLQ spill file inside the container when Postgres is down (see
+  # app/observability/audit.py). Survives pod restarts via the emptyDir below
+  # for the pod lifetime; ship to object storage with your log agent.
+  dlqPath: "/var/run/portcullis-audit-dlq.jsonl"
 
 # Health checks
 healthChecks:
@@ -241,6 +273,14 @@ monitoring:
     scrapeTimeout: 10s
   prometheusRules:
     enabled: true
+  # Ship-checklist: alerts must page somebody. Point at your Alertmanager
+  # receiver; see docs/operations/load-baseline.md. Unset = alerts fire
+  # into the void.
+  alertRouting:
+    enabled: false
+    receiver: "pagerduty-portcullis"
+    criticalRepeatInterval: 5m
+    warningRepeatInterval: 30m
 
 # Backup
 backup:
@@ -272,3 +312,32 @@ networkPolicy:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
+# Frontend dashboard (Next.js standalone, see web/Dockerfile).
+# Ship-checklist: web previously had no production artifact — it does now.
+web:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/wisdom-dosoo/portcullis-web
+    pullPolicy: IfNotPresent
+    # Empty = Chart.AppVersion (pinned release tag). Never "latest" in prod.
+    tag: ""
+  apiUrl: "https://portcullis.yourdomain.com"
+  resources:
+    limits: { cpu: 500m, memory: 512Mi }
+    requests: { cpu: 100m, memory: 128Mi }
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - host: dashboard.yourdomain.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: portcullis-web-tls
+        hosts:
+          - dashboard.yourdomain.com

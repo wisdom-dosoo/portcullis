@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { DemoBanner } from "@/components/demo-banner";
 import {
   Download,
   Bell,
@@ -62,7 +63,7 @@ const BILLING_START = new Date(new Date().getFullYear(), new Date().getMonth(), 
 const DAYS_IN_MONTH = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
 const DAY_OF_MONTH  = new Date().getDate();
 
-/* ── demo data generators ────────────────────────────────────────────────── */
+/* ── live usage aggregations (ship-checklist: real audit data, no jitter) ── */
 
 function makeDailyUsage(logs: AuditLogView[], requestLimit: number): Array<{ day: string; requests: number; limit: number }> {
   // Aggregate real audit logs by day (open source: no jitter)
@@ -390,8 +391,9 @@ export default function UsagePage() {
 
   const PLAN = planFromUsage(usage);
 
-  // usage numbers (real where available, fall back to demo numbers)
-  const requestsUsed = usage?.requests ?? 312_480;
+  // Ship-checklist: live numbers only — no hardcoded fallbacks. Zero until
+  // the usage API reports; the banner below says so.
+  const requestsUsed = usage?.requests ?? logs.length;
   const toolCallsUsed = usage?.tool_calls ?? 0;
   const rbacDenials = usage?.rbac_denials ?? 0;
   const rateLimitRejections = usage?.rate_limit_rejections ?? 0;
@@ -434,6 +436,11 @@ export default function UsagePage() {
 
   return (
     <div style={{ color: "var(--pc-foreground)" }}>
+      <DemoBanner
+        mode="mixed"
+        live="request/tool/server/user charts aggregated from the audit log"
+        local="plan totals, transfer/retention metering, member counts (wired as those APIs land)"
+      />
       {/* sub-header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <p style={{ fontSize: 13, color: "var(--pc-muted)" }}>

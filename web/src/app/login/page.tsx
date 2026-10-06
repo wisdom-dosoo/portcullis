@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Loader2, AlertTriangle, CheckCircle2, Wifi, WifiOff, Mail, Lock } from "lucide-react";
-import { setToken } from "@/lib/auth";
+import { setToken, markCookieSession } from "@/lib/auth";
 import { axiosClient } from "@/lib/axios-instance";
 import { Suspense } from "react";
 
@@ -253,6 +253,8 @@ function SignInForm() {
         await axiosClient.get("/auth/me", {
           headers: { Authorization: `Bearer ${trimmedApiKey}` },
         });
+        // API key: tab-scoped only (sessionStorage). Do not persist to
+        // localStorage — copy it into your agent env if you need it longer.
         setToken(trimmedApiKey, remember);
       } else {
         const response = await axiosClient.post("/auth/login", {
@@ -261,7 +263,9 @@ function SignInForm() {
         });
         const token = response.data?.access_token ?? response.data?.token;
         if (!token) throw new Error("missing_token");
-        setToken(token, remember);
+        // Email login: backend also sets HttpOnly `portcullis_auth`.
+        // Prefer the cookie session — keep no JS credential.
+        markCookieSession(remember);
       }
       router.push("/dashboard");
     } catch (err: unknown) {

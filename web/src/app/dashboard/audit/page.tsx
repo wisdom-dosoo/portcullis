@@ -33,6 +33,7 @@ import {
 } from "@/api/generated";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableEmpty, EMPTY_STATES } from "@/components/empty-state";
+import { DemoBanner } from "@/components/demo-banner";
 
 /* ── org event catalogue ─────────────────────────────────────────────────── */
 
@@ -774,6 +775,11 @@ export default function AuditPage() {
             Admin actions, access events, and configuration changes in a single tamper-evident trail.
           </p>
         </div>
+        <DemoBanner
+          mode="mixed"
+          live="gateway events (auth failures, RBAC denies, tool calls) from the audit API"
+          local="admin-level events (invitations, key management, billing) render from local records until the org event API lands"
+        />
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {/* compliance mode */}

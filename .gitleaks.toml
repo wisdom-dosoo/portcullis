@@ -1,0 +1,26 @@
+# Ship-checklist: fail closed on committed secrets.
+# Allows example/placeholder values used in docs and tests.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Example and test fixtures"
+paths = [
+  '''\.env\.example$''',
+  '''docs/.*\.md$''',
+  '''.*/tests?/.*''',
+  '''.*\.spec\.ts$''',
+  '''deploy/k8s/helm/.*/values\.yaml$''',
+]
+regexes = [
+  '''portcullis\.example\.com''',
+  '''dummy-pepper-for-template-only''',
+  '''ci-test-pepper-change-in-production''',
+  '''development-only-change-me''',
+  '''pk_test_''',
+  '''pk_live_ab12''',
+  '''example\.com''',
+  '''localhost''',
+  '''whsec_''',
+  '''MY_SERVICE_TOKEN''',
+]

@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { DemoBanner } from "@/components/demo-banner";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -100,7 +101,9 @@ const TIMELINE_TYPE_CONFIG = {
   action:        { color: "var(--pc-secondary)",  dot: "var(--pc-secondary)" },
 };
 
-/* ── demo data ───────────────────────────────────────────────────────────── */
+/* ── local-only incident fixtures (ship-checklist: no backend yet) ──────
+   The alerts list starts empty; these fixtures back deep-links only and are
+   labeled via DemoBanner below. Delete with the backend incidents API. */
 
 const INCIDENTS: Record<string, Incident> = {
   "inc-001": {
@@ -668,6 +671,10 @@ export default function IncidentDetailPage({
         color: "var(--pc-foreground)",
       }}
     >
+      <DemoBanner
+        mode="local-only"
+        local="Incident timelines are local fixtures until the incidents API lands."
+      />
       {/* back */}
       <Link
         href="/dashboard/alerts/incidents"

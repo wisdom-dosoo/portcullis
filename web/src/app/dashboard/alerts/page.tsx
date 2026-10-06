@@ -39,6 +39,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
 import { EmptyState, FilterEmpty, EMPTY_STATES } from "@/components/empty-state";
+import { DemoBanner } from "@/components/demo-banner";
 
 /* ── types ───────────────────────────────────────────────────────────────── */
 
@@ -536,44 +537,6 @@ const INCIDENT_STATUS_CONFIG: Record<IncidentStatus, { label: string; color: str
   resolved:      { label: "Resolved",      color: "var(--pc-success)",  bg: "rgba(53,200,138,0.12)" },
 };
 
-/* ── demo incidents ──────────────────────────────────────────────────────── */
-
-const DEMO_INCIDENTS: Incident[] = [
-  {
-    id: "inc-001",
-    title: "Staging MCP server health check failing",
-    severity: "critical",
-    status: "investigating",
-    startTime: new Date(Date.now() - 1_200_000).toISOString(),
-    resolvedAt: null,
-    affectedServices: ["staging-mcp"],
-    alertRuleId: "rule-2",
-    assignee: "oncall@example.com",
-  },
-  {
-    id: "inc-002",
-    title: "Auth failure burst — possible credential leak",
-    severity: "high",
-    status: "identified",
-    startTime: new Date(Date.now() - 3_600_000).toISOString(),
-    resolvedAt: null,
-    affectedServices: ["gateway"],
-    alertRuleId: "rule-4",
-    assignee: "security@example.com",
-  },
-  {
-    id: "inc-003",
-    title: "Production error rate spike",
-    severity: "critical",
-    status: "resolved",
-    startTime: new Date(Date.now() - 86_400_000 * 2).toISOString(),
-    resolvedAt: new Date(Date.now() - 86_400_000 * 2 + 7_200_000).toISOString(),
-    affectedServices: ["production-mcp"],
-    alertRuleId: "rule-1",
-    assignee: "oncall@example.com",
-  },
-];
-
 /* ── alert rule card ─────────────────────────────────────────────────────── */
 
 function RuleCard({
@@ -927,10 +890,10 @@ export default function AlertsPage() {
         color: "var(--pc-foreground)",
       }}
     >
-      <div className="rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2 mb-4" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
-        <span style={{ fontWeight: 600 }}>Demo</span>
-        <span style={{ color: "var(--pc-muted)" }}>— alert rules and incidents are local demo — no backend persistence yet.</span>
-      </div>
+      <DemoBanner
+        mode="local-only"
+        local="Alert rules and incidents live in browser state only."
+      />
       {/* header */}
       <div
         style={{

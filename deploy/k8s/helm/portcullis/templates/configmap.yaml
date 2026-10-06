@@ -18,6 +18,10 @@ data:
   MANAGEMENT_API_RATE_LIMIT_DEFAULT: {{ .Values.config.managementApiRateLimitDefault | quote }}
   MAX_REQUEST_BODY_BYTES: {{ .Values.config.maxRequestBodyBytes | quote }}
   MCP_ALLOWED_ORIGINS: {{ .Values.config.mcpAllowedOrigins | quote }}
+  FORWARDED_ALLOW_IPS: {{ .Values.config.forwardedAllowIps | quote }}
+  SKIP_MIGRATIONS: {{ .Values.migration.skipInPods | quote }}
+  AUDIT_RETENTION_DAYS: {{ .Values.audit.retentionDays | quote }}
+  AUDIT_DLQ_PATH: {{ .Values.audit.dlqPath | quote }}
   USAGE_ENFORCEMENT_ENABLED: {{ .Values.config.usageEnforcementEnabled | quote }}
   TELEMETRY_ENABLED: {{ .Values.config.telemetryEnabled | quote }}
   METRICS_ENABLED: {{ .Values.config.metricsEnabled | quote }}
@@ -29,3 +33,4 @@ data:
   REDIS_MAX_CONNECTIONS: {{ .Values.redis.maxConnections | quote }}
   REDIS_SOCKET_TIMEOUT_SECONDS: {{ .Values.redis.socketTimeoutSeconds | quote }}
   REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: {{ .Values.redis.socketConnectTimeoutSeconds | quote }}
+  DB_PGBOUNCER: {{ .Values.postgresql.pgbouncer.enabled | quote }}

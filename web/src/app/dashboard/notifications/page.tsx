@@ -24,8 +24,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { Notification, NotifType } from "@/components/notification-panel";
-import { DEMO_NOTIFICATIONS } from "@/components/notification-panel";
 import { RelativeTime } from "@/components/relative-time";
+import { DemoBanner } from "@/components/demo-banner";
 
 /* ── Config ──────────────────────────────────────────────────────────────── */
 
@@ -146,10 +146,10 @@ export default function NotificationsPage() {
 
   return (
     <div style={{ color: "var(--pc-foreground)" }}>
-      <div className="rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2 mb-4" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
-        <span style={{ fontWeight: 600 }}>Demo</span>
-        <span style={{ color: "var(--pc-muted)" }}>— notifications are local demo — no backend delivery yet.</span>
-      </div>
+      <DemoBanner
+        mode="local-only"
+        local="Notifications have no backend delivery yet — the inbox starts empty."
+      />
       {/* header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>

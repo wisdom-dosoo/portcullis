@@ -184,11 +184,27 @@ class Settings(BaseSettings):
     # behavior for backwards compatibility.
     metrics_auth_token: str | None = None
 
+    # Ship-checklist: trusted proxy CIDRs for X-Forwarded-For. The pre-auth
+    # rate limiter keys on client IP — `*` lets any client spoof its IP and
+    # bypass throttling. Production must list ingress/LB CIDRs only
+    # (e.g. "10.0.0.0/8,130.211.0.0/22"). Empty = uvicorn default (no proxy
+    # headers trusted).
+    forwarded_allow_ips: str = ""
+
     # P3: stdio-bridge transports spawn local subprocesses. Registration of
     # stdio_bridge servers is disabled unless the operator opts in — any
     # Developer can otherwise register servers and turn bridge_command into
     # local command execution on whoever runs the bridge worker.
     stdio_bridge_enabled: bool = False
+
+    # Ship-checklist: audit durability + lifecycle.
+    # retention_days=0 disables pruning (keep forever — default for SOC 2).
+    audit_retention_days: int = 0
+    # Spill file for audit events that fail to write (Postgres down).
+    # Shipped by your log agent to object storage; replayed via
+    # `scripts/audit_dlq_replay.py`. Empty disables the file spill
+    # (failures are still logged).
+    audit_dlq_path: str = ""
 
     @property
     def active_pepper(self) -> str:
@@ -217,6 +233,13 @@ class Settings(BaseSettings):
         if not self.mcp_allowed_origins:
             return ()
         return tuple(item.strip() for item in self.mcp_allowed_origins.split(",") if item.strip())
+
+    @property
+    def forwarded_allow_ips_tuple(self) -> tuple[str, ...]:
+        """Parse FORWARDED_ALLOW_IPS into a tuple of CIDRs/IPs."""
+        if not self.forwarded_allow_ips:
+            return ()
+        return tuple(item.strip() for item in self.forwarded_allow_ips.split(",") if item.strip())
 
     @model_validator(mode="after")
     def validate_mcp_allowed_origins_in_production(self) -> Self:
@@ -296,6 +319,20 @@ class Settings(BaseSettings):
             and self.api_key_pepper == DEVELOPMENT_API_KEY_PEPPER
         ):
             raise ValueError("API_KEY_PEPPER must be changed for production")
+        return self
+
+    @model_validator(mode="after")
+    def reject_untrusted_proxy_in_production(self) -> Self:
+        """Refuse `*` forwarded trust and require an explicit allow-list in prod."""
+        if self.environment is Environment.PRODUCTION and self.forwarded_allow_ips.strip() in (
+            "*",
+            "0.0.0.0/0",
+        ):
+            raise ValueError(
+                "FORWARDED_ALLOW_IPS must list trusted ingress/LB CIDRs in "
+                "production — '*' lets clients spoof X-Forwarded-For and "
+                "bypass pre-auth rate limiting"
+            )
         return self
 
     @model_validator(mode="after")

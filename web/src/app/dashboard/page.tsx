@@ -26,6 +26,7 @@ import {
   CircleCheck,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DemoBanner } from "@/components/demo-banner";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -115,16 +116,30 @@ function StatCard({
   return href ? <Link href={href}>{inner}</Link> : inner;
 }
 
-/* ── mock chart data ─────────────────────────────────────────────── */
-function mockChartData() {
+/* ── live traffic chart (ship-checklist: no Math.random in prod UI) ── */
+function trafficByHour(audit: AuditLogView[]) {
   const now = Date.now();
-  return Array.from({ length: 24 }, (_, i) => ({
-    hour: new Date(now - (23 - i) * 3_600_000).getHours() + ":00",
-    allowed: Math.floor(Math.random() * 80 + 20),
-    denied:  Math.floor(Math.random() * 10),
-  }));
+  const buckets = Array.from({ length: 24 }, (_, i) => {
+    const start = now - (23 - i) * 3_600_000;
+    return {
+      hour: new Date(start).getHours() + ":00",
+      start,
+      allowed: 0,
+      denied: 0,
+    };
+  });
+  for (const a of audit) {
+    if (!a.created_at) continue;
+    const t = new Date(a.created_at).getTime();
+    if (Number.isNaN(t) || now - t > 24 * 3_600_000) continue;
+    const idx = Math.min(23, Math.floor((t - (now - 24 * 3_600_000)) / 3_600_000));
+    if (a.outcome === "allowed") buckets[idx].allowed += 1;
+    else buckets[idx].denied += 1;
+  }
+  return buckets.map(({ hour, allowed, denied }) => ({ hour, allowed, denied }));
 }
-const CHART_DATA = mockChartData();
+
+/* ── (DemoBanner moved to shared @/components/demo-banner) ─────── */
 
 /* ── quick action button ─────────────────────────────────────────── */
 function QuickAction({
@@ -162,16 +177,6 @@ function QuickAction({
 
 /* ── component ───────────────────────────────────────────────────── */
 
-function DemoBanner() {
-  return (
-    <div className="mb-4 rounded-xl border px-3.5 py-2.5 text-xs flex items-center gap-2" style={{ background: "rgba(244,185,66,0.10)", borderColor: "rgba(244,185,66,0.35)", color: "#F4B942" }}>
-      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={2} />
-      <span className="font-semibold">Demo data</span>
-      <span style={{ color: "var(--pc-muted)" }}>— traffic charts and billing widgets are mocked until backend APIs land. Servers, roles, and audit are live.</span>
-    </div>
-  );
-}
-
 export default function DashboardPage() {
   const { data: serversResp, isLoading: loadingServers } = useListServersV1ServersGet();
   const { data: keysResp,    isLoading: loadingKeys    } = useListApiKeysV1ApiKeysGet();
@@ -198,9 +203,16 @@ export default function DashboardPage() {
     { label: "Test a tool via playground", done: false,               href: "/dashboard/playground"   },
   ];
 
+  const chartData = trafficByHour(audit);
+  const hasTraffic = chartData.some((d) => d.allowed > 0 || d.denied > 0);
+
   return (
     <div className="space-y-8">
-      <DemoBanner />
+      <DemoBanner
+        mode="mixed"
+        live="servers, API keys, rate-limit policies, audit log, traffic chart"
+        local="billing widgets (see Usage)"
+      />
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
@@ -335,7 +347,13 @@ export default function DashboardPage() {
             <h2 className="text-sm font-semibold" style={{ color: "var(--pc-foreground)" }}>
               Request Traffic
             </h2>
-            <p className="text-xs mt-0.5" style={{ color: "var(--pc-muted)" }}>Last 24 hours (simulated)</p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--pc-muted)" }}>
+              {loadingAudit
+                ? "Loading…"
+                : hasTraffic
+                  ? "Last 24 hours · live audit data"
+                  : "Last 24 hours · no traffic yet — send a proxied tool call"}
+            </p>
           </div>
           <div className="flex items-center gap-4 text-xs" style={{ color: "var(--pc-muted)" }}>
             <span className="flex items-center gap-1.5">
@@ -349,7 +367,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={CHART_DATA} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+          <AreaChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="gAllowed" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%"  stopColor="#2DD4A7" stopOpacity={0.25} />
