@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from typing import Any
 
 from app.auth.api_keys import issue_key
 from app.config import get_settings
@@ -76,9 +77,30 @@ def main() -> None:
         "status", help="Show whether telemetry is enabled and this install's anonymous id"
     )
 
+    mcp_parser = subparsers.add_parser("mcp", help="MCP client helpers for AI agents")
+    mcp_subparsers = mcp_parser.add_subparsers(dest="mcp_command")
+    config_parser = mcp_subparsers.add_parser(
+        "config", help="Print an MCP client config snippet for Claude/Cursor/Cline"
+    )
+    config_parser.add_argument("--server", required=True, help="Upstream server slug in Portcullis")
+    config_parser.add_argument(
+        "--base-url", default="http://localhost:8080", help="Public Portcullis base URL"
+    )
+    config_parser.add_argument(
+        "--client",
+        default="claude",
+        choices=["claude", "cursor", "cline", "windsurf", "generic"],
+        help="Client config shape (default: claude)",
+    )
+    config_parser.add_argument(
+        "--api-key-env", default="PORTCULLIS_API_KEY", help="Env var holding the API key"
+    )
+
     args = parser.parse_args()
 
-    if args.command == "admin-key" and args.action == "create":
+    if args.command == "mcp" and args.mcp_command == "config":
+        _print_mcp_config(args)
+    elif args.command == "admin-key" and args.action == "create":
         asyncio.run(_create_admin_key(args.name))
     elif args.command == "admin" and args.admin_command == "bootstrap":
         asyncio.run(_bootstrap_admin(args.email))
@@ -90,6 +112,36 @@ def main() -> None:
         _telemetry_status()
     else:
         parser.print_help()
+
+
+def build_mcp_config(
+    server_slug: str, base_url: str, api_key_env: str = "PORTCULLIS_API_KEY"
+) -> dict[str, Any]:
+    """Build a Streamable-HTTP MCP client entry for one Portcullis server."""
+    url = base_url.rstrip("/") + f"/mcp/{server_slug}"
+    return {
+        "url": url,
+        "transport": "streamable_http",
+        "headers": {"Authorization": f"Bearer ${api_key_env}"},
+    }
+
+
+def _print_mcp_config(args: argparse.Namespace) -> None:
+    """Print a copy-paste MCP client config snippet (no DB access)."""
+    import json
+    import os
+
+    entry = build_mcp_config(args.server, args.base_url, args.api_key_env)
+    # Allow `--api-key-env` to resolve from the environment for a ready-to-paste
+    # snippet, otherwise leave the $VAR placeholder for the agent to fill.
+    raw_key = os.environ.get(args.api_key_env)
+    if raw_key:
+        entry["headers"] = {"Authorization": f"Bearer {raw_key}"}
+    if args.client in {"claude", "cursor", "windsurf", "generic"}:
+        print(json.dumps({"mcpServers": {args.server: entry}}, indent=2))
+    else:  # cline uses the same shape under a different top-level key
+        print(json.dumps({"mcpServers": {args.server: entry}}, indent=2))
+        print("# Cline: paste the object above into Remote Servers", flush=True)
 
 
 async def _create_admin_key(name: str) -> None:

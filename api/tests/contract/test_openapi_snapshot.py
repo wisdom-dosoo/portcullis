@@ -14,7 +14,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKED_IN = REPO_ROOT / "openapi.json"
 
-REQUIRED_PATHS = ("/v1/servers", "/v1/audit", "/mcp/{server_slug}", "/healthz", "/metrics")
+REQUIRED_PATHS = (
+    "/v1/servers",
+    "/v1/audit",
+    "/mcp/{server_slug}",
+    "/healthz",
+    "/.well-known/mcp.json",
+    "/.well-known/oauth-protected-resource",
+)
+# NOTE: /metrics is intentionally include_in_schema=False (see app/main.py) —
+# it is a Prometheus scrape target, not part of the public OpenAPI contract.
 
 
 def _load_checked_in() -> dict:

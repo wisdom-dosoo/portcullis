@@ -604,6 +604,42 @@ async def mcp_proxy(
             if error:
                 return error
 
+            # Agent DX: ?dry_run=1 returns the auth/RBAC/rate-limit decision
+            # WITHOUT forwarding upstream. Lets agents and the Playground
+            # "Test policy" button explain allow/deny cheaply.
+            dry_run = request.query_params.get("dry_run", "").lower() in {"1", "true", "yes"}
+            if dry_run:
+                explain: dict[str, object] = {
+                    "allowed": True,
+                    "server_slug": server_slug,
+                    "method": method,
+                    "tool": resource_name,
+                    "subject_type": ctx.subject.subject_type.value
+                    if hasattr(ctx.subject.subject_type, "value")
+                    else str(ctx.subject.subject_type),
+                    "rate_limit": dict(ctx.rl_headers),
+                    "upstream_would_forward_to": ctx.server.upstream_url,
+                }
+                headers = dict(ctx.rl_headers)
+                if request_id:
+                    headers["X-Request-Id"] = request_id
+                headers["X-Portcullis-Dry-Run"] = "1"
+                await record_event(
+                    runtime.session_factory,
+                    event_type=AuditEventType.TOOL_CALL,
+                    outcome="allowed",
+                    tenant_id=ctx.subject.tenant_id,
+                    subject_id=ctx.subject.subject_id,
+                    subject_type=ctx.subject.subject_type,
+                    server_slug=server_slug,
+                    tool_name=resource_name,
+                    rpc_method=method,
+                    client_ip=client_ip,
+                    request_id=request_id,
+                    detail={"dry_run": True},
+                )
+                return JSONResponse(content={"jsonrpc": "2.0", "id": rpc_id, "result": explain}, headers=headers or None)
+
             # -------------------------------------------------------------------------
             # Step 5b: Usage-billing cap check (opt-in, self-host unlimited by default)
             # -------------------------------------------------------------------------

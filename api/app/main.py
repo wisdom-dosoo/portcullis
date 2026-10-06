@@ -217,6 +217,10 @@ def create_app() -> FastAPI:
     application.add_middleware(RequestIdMiddleware)
     application.include_router(health_router)
 
+    from app.api.discovery import router as discovery_router
+
+    application.include_router(discovery_router)
+
     from app.api.auth import router as auth_router
 
     application.include_router(auth_router)
