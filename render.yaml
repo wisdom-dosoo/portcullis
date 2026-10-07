@@ -1,0 +1,71 @@
+# Portcullis — Render Blueprint (free-tier path for OSS).
+# Apply: connect repo in Render Dashboard -> New -> Blueprint -> select render.yaml,
+# or `render blueprint apply`. Secrets with `sync: false` are set in the dashboard.
+services:
+  - type: web
+    name: portcullis-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./api/deploy/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /livez
+    autoDeploy: true
+    envVars:
+      # --- runtime ---
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: UVICORN_WORKERS
+        value: 1 # free = 512MB RAM; >1 undercounts prometheus_client registries
+      # --- data plane (Neon pooled + Upstash) ---
+      # Neon dashboard -> Connection Details -> Pooled (port 6543, ?sslmode=require)
+      # Example: postgresql+asyncpg://user:pass@ep-xxx.aws.neon.tech:6543/portcullis?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+      # Neon direct (port 5432, no pooling) for Alembic advisory lock.
+      # Same as above but port 5432. Required when DB_PGBOUNCER=true.
+      - key: DATABASE_URL_DIRECT
+        sync: false
+      - key: DB_PGBOUNCER
+        value: true
+      - key: DB_POOL_SIZE
+        value: 5 # Neon free chokes on the default 10+20
+      - key: DB_MAX_OVERFLOW
+        value: 5
+      # Upstash dashboard -> Redis -> rediss:// URL
+      - key: REDIS_URL
+        sync: false
+      - key: API_KEY_PEPPER
+        generateValue: true
+      # --- production hardening (config.py refuses boot without these) ---
+      # Must list your Pages domains explicitly, never "*".
+      # Example: https://portcullis.pages.dev,https://app.yourdomain.com
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      # MCP DNS-rebinding allow-list. Example: https://claude.ai,https://cursor.sh,https://portcullis.pages.dev
+      - key: MCP_ALLOWED_ORIGINS
+        sync: false
+      # Render + Cloudflare egress CIDRs only, never "*". Find yours in Render docs;
+      # Cloudflare IPs: https://www.cloudflare.com/ips/
+      - key: FORWARDED_ALLOW_IPS
+        sync: false
+      - key: UPSTREAM_ALLOWED_HOSTS
+        value: localhost,127.0.0.1
+      # --- auth (Clerk as OIDC Resource Server, no code change) ---
+      # Clerk Dashboard -> API Keys -> Frontend API, e.g. https://clerk.yourdomain.com
+      - key: JWT_JWKS_URL
+        sync: false # e.g. https://<clerk-frontend-api>/.well-known/jwks.json
+      - key: JWT_ISSUER
+        sync: false
+      - key: JWT_AUDIENCE
+        value: portcullis
+      # --- email (Resend free: 100/day) ---
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_FROM
+        value: noreply@yourdomain.com
+      - key: EMAIL_FROM_NAME
+        value: Portcullis
+      - key: RESEND_API_KEY
+        sync: false

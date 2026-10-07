@@ -19,6 +19,7 @@ REQUIRED_PATHS = (
     "/v1/audit",
     "/mcp/{server_slug}",
     "/healthz",
+    "/livez",
     "/.well-known/mcp.json",
     "/.well-known/oauth-protected-resource",
 )

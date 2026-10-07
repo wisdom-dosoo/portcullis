@@ -4998,6 +4998,26 @@
         ]
       }
     },
+    "/livez": {
+      "get": {
+        "description": "Liveness probe \u2014 always 200 if the process is up.\n\nRender / K8s liveness must NOT depend on Postgres/Redis: Neon\nsuspends after inactivity and Upstash free can cold-start, so a\ndeep check here would restart-loop the container on every idle\nwake. Use /healthz for readiness (deep DB+Redis check).",
+        "operationId": "livez_livez_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Livez",
+        "tags": [
+          "health"
+        ]
+      }
+    },
     "/mcp/{server_slug}": {
       "get": {
         "description": "Open an upstream SSE event stream for the Streamable HTTP transport.\n\nAuthentication, registry resolution, and rate limiting are enforced exactly\nas for POST requests; the upstream GET response (a live ``text/event-stream``)\nis streamed back to the client without buffering.  Any ``Mcp-Session-Id``\nissued by the upstream is persisted and echoed to the client.",

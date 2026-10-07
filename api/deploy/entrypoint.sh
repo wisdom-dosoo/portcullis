@@ -60,9 +60,13 @@ raise SystemExit(asyncio.run(run()))
 PY
 fi
 
+# Render injects $PORT (default 10000); local docker-compose uses 8080.
+# ${PORT:-8080} keeps both working without a separate start command.
+APP_PORT="${PORT:-8080}"
+
 if [ -n "$FORWARDED_ALLOW_IPS" ]; then
   # shellcheck disable=SC2086
-  exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers "$UVICORN_WORKERS" --proxy-headers --forwarded-allow-ips "$FORWARDED_ALLOW_IPS" --timeout-keep-alive "$UVICORN_TIMEOUT"
+  exec uvicorn app.main:app --host 0.0.0.0 --port "$APP_PORT" --workers "$UVICORN_WORKERS" --proxy-headers --forwarded-allow-ips "$FORWARDED_ALLOW_IPS" --timeout-keep-alive "$UVICORN_TIMEOUT"
 else
-  exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers "$UVICORN_WORKERS" --timeout-keep-alive "$UVICORN_TIMEOUT"
+  exec uvicorn app.main:app --host 0.0.0.0 --port "$APP_PORT" --workers "$UVICORN_WORKERS" --timeout-keep-alive "$UVICORN_TIMEOUT"
 fi

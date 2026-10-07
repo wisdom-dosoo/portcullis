@@ -14,6 +14,18 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["health"])
 
 
+@router.get("/livez")
+async def livez() -> JSONResponse:
+    """Liveness probe — always 200 if the process is up.
+
+    Render / K8s liveness must NOT depend on Postgres/Redis: Neon
+    suspends after inactivity and Upstash free can cold-start, so a
+    deep check here would restart-loop the container on every idle
+    wake. Use /healthz for readiness (deep DB+Redis check).
+    """
+    return JSONResponse(status_code=200, content={"status": "ok"})
+
+
 @router.get("/healthz")
 async def healthz(request: Request) -> JSONResponse:
     """Return readiness status for the database and Redis connections."""

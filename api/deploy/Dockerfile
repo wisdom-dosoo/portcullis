@@ -14,6 +14,9 @@ COPY alembic.ini ./
 COPY deploy/entrypoint.sh ./entrypoint.sh
 RUN chmod +x entrypoint.sh && chown -R portcullis:portcullis /app
 USER portcullis
-EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD python -c "import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8080/healthz', timeout=5); sys.exit(0 if 200 <= r.status < 400 else 1)"
+EXPOSE 8080 10000
+# Render does its own HTTP health check (see render.yaml healthCheckPath=/livez);
+# this is for local docker / self-host. Uses $PORT when set, falls back to 8080,
+# and hits /livez (liveness) so Neon/Upstash cold starts don't fail the check.
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD python -c "import os,sys,urllib.request; p=os.environ.get('PORT','8080'); r=urllib.request.urlopen(f'http://localhost:{p}/livez', timeout=5); sys.exit(0 if 200 <= r.status < 400 else 1)"
 ENTRYPOINT ["./entrypoint.sh"]
