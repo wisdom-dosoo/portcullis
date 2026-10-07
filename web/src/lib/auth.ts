@@ -65,7 +65,8 @@ function clearGuardCookie(): void {
   document.cookie = `${CSRF_COOKIE_KEY}=; path=/; max-age=0; SameSite=Strict${secure}`;
   try {
     const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-    fetch(`${base}/auth/sso/sso/logout`, { credentials: "include" }).catch(() => {});
+    const slug = process.env.NEXT_PUBLIC_SSO_SLUG ?? "google";
+    fetch(`${base}/auth/sso/${slug}/logout`, { credentials: "include" }).catch(() => {});
   } catch {
     /* ignore */
   }

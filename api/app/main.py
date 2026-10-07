@@ -190,6 +190,16 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     application.add_middleware(MetricsMiddleware)
+    application.add_middleware(OriginValidationMiddleware, settings=settings)
+    application.add_middleware(ManagementApiRateLimitMiddleware)
+    # P3: cookie-session CSRF gate (Bearer requests bypass; see module docs).
+    from app.security.csrf import CookieCsrfMiddleware
+
+    application.add_middleware(CookieCsrfMiddleware)
+    # P3: CORS outside the rejecting gates (CSRF/RateLimit/Origin) so their
+    # 403/429s still carry ACAO headers. Otherwise browsers receive a bare
+    # rejection and misreport the real status as a CORS failure (e.g. a
+    # stale-cookie CSRF 403 on /auth/login shows as "blocked by CORS policy").
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins_tuple),
@@ -206,12 +216,6 @@ def create_app() -> FastAPI:
             "X-CSRF-Token",
         ],
     )
-    application.add_middleware(OriginValidationMiddleware, settings=settings)
-    application.add_middleware(ManagementApiRateLimitMiddleware)
-    # P3: cookie-session CSRF gate (Bearer requests bypass; see module docs).
-    from app.security.csrf import CookieCsrfMiddleware
-
-    application.add_middleware(CookieCsrfMiddleware)
     # P3: RequestId outermost so 403/429 from outer gates still carry it
     # (was inner to Origin/RateLimit — their rejections lacked the ID).
     application.add_middleware(RequestIdMiddleware)

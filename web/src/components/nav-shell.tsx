@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { isAuthenticated, clearToken } from "@/lib/auth";
+import { useIsPlatformAdmin } from "@/lib/use-platform-admin";
 import { useListRolesV1RolesGet, type RoleView } from "@/api/generated";
 import { cn } from "@/lib/utils";
 import {
@@ -105,9 +106,19 @@ function ContextSwitcher({ current, roles }: { current: NavContext; roles: RoleV
   const meta = CONTEXT_META[current];
   const Icon = meta.icon;
 
+  // The Platform Admin ("Super Admin") context is secret: it is offered only
+  // when the backend confirms platform-admin status. Role names alone never
+  // unlock it — otherwise every org admin would see it in this dropdown.
+  const isPlatformAdmin = useIsPlatformAdmin();
+
   // Derive available contexts from backend roles; always include current
   const availableContexts = new Set<NavContext>([current]);
-  roles.forEach((r) => availableContexts.add(roleToContext(r.name)));
+  roles.forEach((r) => {
+    const ctx = roleToContext(r.name);
+    if (ctx === "platform-admin" && !isPlatformAdmin) return;
+    availableContexts.add(ctx);
+  });
+  if (isPlatformAdmin) availableContexts.add("platform-admin");
 
   function switchTo(ctx: NavContext) {
     setOpen(false);

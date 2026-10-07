@@ -22,6 +22,7 @@ from app.models.schemas import (
 )
 from app.repositories.api_keys import ApiKeyRepository
 from app.repositories.rbac import RbacRepository
+from app.repositories.users import UserRepository
 
 router = APIRouter(prefix="/v1/roles", tags=["roles"])
 
@@ -45,13 +46,44 @@ async def list_roles(
     session: Annotated[AsyncSession, Depends(get_session)],
     response: Response,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0)] = 100 - 100,
 ) -> list[RoleView]:
-    """List roles for the current tenant (P1: paginated)."""
+    """List roles for the current tenant (P1: paginated).
+
+    The platform ``super_admin`` role is hidden from non-platform callers —
+    org admins and members never see it. Platform admins (bootstrap
+    ``admin``-scope keys or ``is_platform_admin`` users) see the full set.
+    """
     repo = RbacRepository(session)
     roles = await repo.list_roles(tenant_id=subject.tenant_id)
+    if not await _is_platform_caller(subject, session):
+        roles = [r for r in roles if r.name != "super_admin"]
     response.headers["X-Total-Count"] = str(len(roles))
     return [RoleView.model_validate(r) for r in roles[offset : offset + limit]]
+
+
+async def _is_platform_caller(subject: Subject, session: AsyncSession) -> bool:
+    """Return True when the caller is a platform operator.
+
+    Mirrors ``platform_admin_subject`` without raising: bootstrap keys
+    carrying the ``admin`` scope, or API-key subjects whose backing user
+    has ``is_platform_admin`` set. Anything else (including OAuth
+    subjects) is not a platform caller.
+    """
+    if subject.has_scope("admin"):
+        return True
+    if subject.subject_type is not SubjectType.API_KEY:
+        return False
+    try:
+        api_key = await ApiKeyRepository(session).get_by_id(
+            UUID(subject.subject_id), subject.tenant_id
+        )
+    except (ValueError, AttributeError):
+        return False
+    if api_key is None or api_key.user_id is None:
+        return False
+    user = await UserRepository(session).get_by_id(subject.tenant_id, api_key.user_id)
+    return bool(user is not None and user.is_active and user.is_platform_admin)
 
 
 @router.post("/{role_id}/bindings", status_code=201, response_model=RoleBindingView)

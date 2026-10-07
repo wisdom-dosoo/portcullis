@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Loader2, AlertTriangle, CheckCircle2, Wifi, WifiOff, Mail, Lock } from "lucide-react";
-import { setToken, markCookieSession } from "@/lib/auth";
+import { markCookieSession } from "@/lib/auth";
 import { axiosClient } from "@/lib/axios-instance";
 import { Suspense } from "react";
 
@@ -148,8 +148,8 @@ type AuthError =
 
 const ERROR_MESSAGES: Record<NonNullable<AuthError>, { title: string; detail: string }> = {
   invalid_credentials: {
-    title: "Invalid API key",
-    detail: "The key you entered was not recognised. Check it and try again.",
+    title: "Invalid credentials",
+    detail: "The email or password you entered was not recognised. Check them and try again.",
   },
   too_many_attempts: {
     title: "Too many attempts",
@@ -190,22 +190,47 @@ function ErrorBanner({ error }: { error: AuthError }) {
   );
 }
 
-/* ── SSO button ──────────────────────────────────────────────────── */
+/* ── Continue with Google button ─────────────────────────────────── */
 
-const SSO_SLUG = process.env.NEXT_PUBLIC_SSO_SLUG ?? "sso";
+const GOOGLE_SSO_SLUG = process.env.NEXT_PUBLIC_SSO_SLUG ?? "google";
 
-function SsoButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+function GoogleIcon() {
+  return (
+    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"
+      />
+    </svg>
+  );
+}
+
+function GoogleButton() {
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
   return (
     <a
-      href={`${apiBase}/auth/sso/${SSO_SLUG}/login`}
-      className="flex items-center justify-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-      style={{ borderColor: "var(--pc-border)", color: "var(--pc-foreground)" }}
-      aria-label={`Continue with ${label}`}
+      href={`${apiBase}/auth/sso/${GOOGLE_SSO_SLUG}/login`}
+      className="flex items-center justify-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+      style={{ borderColor: "#dadce0", background: "#ffffff", color: "#1f1f1f" }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "#f6fafe")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "#ffffff")}
+      aria-label="Continue with Google"
     >
-      {icon}
-      {label}
+      <GoogleIcon />
+      Continue with Google
     </a>
   );
 }
@@ -216,10 +241,8 @@ function SignInForm() {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
-  const [apiKey, setApiKey]     = useState("");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [show, setShow]         = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading, setLoading]   = useState(false);
@@ -246,27 +269,17 @@ function SignInForm() {
     setAuthError(null);
     setLoading(true);
     try {
-      const trimmedApiKey = apiKey.trim();
       const trimmedEmail = email.trim();
 
-      if (trimmedApiKey) {
-        await axiosClient.get("/auth/me", {
-          headers: { Authorization: `Bearer ${trimmedApiKey}` },
-        });
-        // API key: tab-scoped only (sessionStorage). Do not persist to
-        // localStorage — copy it into your agent env if you need it longer.
-        setToken(trimmedApiKey, remember);
-      } else {
-        const response = await axiosClient.post("/auth/login", {
-          email: trimmedEmail,
-          password,
-        });
-        const token = response.data?.access_token ?? response.data?.token;
-        if (!token) throw new Error("missing_token");
-        // Email login: backend also sets HttpOnly `portcullis_auth`.
-        // Prefer the cookie session — keep no JS credential.
-        markCookieSession(remember);
-      }
+      const response = await axiosClient.post("/auth/login", {
+        email: trimmedEmail,
+        password,
+      });
+      const token = response.data?.access_token ?? response.data?.token;
+      if (!token) throw new Error("missing_token");
+      // Email login: backend also sets HttpOnly `portcullis_auth`.
+      // Prefer the cookie session — keep no JS credential.
+      markCookieSession(remember);
       router.push("/dashboard");
     } catch (err: unknown) {
       const next = attempts + 1;
@@ -293,49 +306,19 @@ function SignInForm() {
   }
 
   return (
+    <div className="space-y-3.5">
+      {/* Continue with Google — primary */}
+      <GoogleButton />
+
+      {/* Divider */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px" style={{ background: "var(--pc-border)" }} />
+        <span className="text-xs" style={{ color: "var(--pc-muted)" }}>or sign in with email</span>
+        <div className="flex-1 h-px" style={{ background: "var(--pc-border)" }} />
+      </div>
+
     <form onSubmit={handleSubmit} className="space-y-3.5">
       <ErrorBanner error={authError} />
-
-      {/* API key field */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--pc-muted)" }}>
-          API Key
-        </label>
-        <div className="relative">
-          <input
-            type={show ? "text" : "password"}
-            value={apiKey}
-            onChange={(e) => { setApiKey(e.target.value); setAuthError(null); }}
-            placeholder="pk_live_••••••••••••••••"
-            autoComplete="current-password"
-            className="w-full px-3.5 py-2 pr-11 rounded-xl border text-sm font-mono outline-none transition-colors"
-            style={{
-              background: "var(--pc-elevated)",
-              borderColor: authError ? "rgba(240,93,94,0.5)" : "var(--pc-border)",
-              color: "var(--pc-foreground)",
-            }}
-            onFocus={(e) => (e.target.style.borderColor = "rgba(45,212,167,0.5)")}
-            onBlur={(e) => (e.target.style.borderColor = authError ? "rgba(240,93,94,0.5)" : "var(--pc-border)")}
-          />
-          <button
-            type="button"
-            onClick={() => setShow(!show)}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors"
-            style={{ color: "var(--pc-muted)" }}
-          >
-            {show ? <EyeOff className="w-4 h-4" strokeWidth={1.75} /> : <Eye className="w-4 h-4" strokeWidth={1.75} />}
-          </button>
-        </div>
-        <p className="text-xs" style={{ color: "var(--pc-muted)" }}>
-          Create a key with{" "}
-          <code
-            className="px-1 py-0.5 rounded text-[10px]"
-            style={{ background: "var(--pc-elevated)", color: "var(--pc-secondary)" }}
-          >
-            python -m app.cli admin-key create
-          </code>
-        </p>
-      </div>
 
       {/* Email and password fields */}
       <div className="grid gap-3">
@@ -408,21 +391,19 @@ function SignInForm() {
           </div>
           <span className="text-xs" style={{ color: "var(--pc-muted)" }}>Remember this device</span>
         </label>
-        {/* P3: no self-service reset endpoint exists — link to a dead route
-            (`/auth/forgot-password` 404) was worse than honest copy. */}
-        <span
-          className="text-xs"
+        <Link
+          href="/auth/forgot-password"
+          className="text-xs hover:underline"
           style={{ color: "var(--pc-muted)" }}
-          title="Ask your org admin to issue a new API key or re-invite you"
         >
-          Forgot key? Contact your org admin
-        </span>
+          Forgot password?
+        </Link>
       </div>
 
       {/* Submit */}
       <button
         type="submit"
-        disabled={loading || attempts >= 5 || (!apiKey.trim() && (!email.trim() || !password))}
+        disabled={loading || attempts >= 5 || !email.trim() || !password}
         className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         style={{ background: "var(--pc-primary)", color: "#0C1116" }}
       >
@@ -430,26 +411,6 @@ function SignInForm() {
           ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>
           : "Sign in to Portcullis"}
       </button>
-
-      {/* Divider */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px" style={{ background: "var(--pc-border)" }} />
-        <span className="text-xs" style={{ color: "var(--pc-muted)" }}>or continue with</span>
-        <div className="flex-1 h-px" style={{ background: "var(--pc-border)" }} />
-      </div>
-
-      {/* SSO button */}
-      <div className="grid grid-cols-1 gap-2">
-        <SsoButton
-          label="Single sign-on"
-          icon={
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-          }
-        />
-      </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-1">
@@ -460,6 +421,7 @@ function SignInForm() {
         </div>
       </div>
     </form>
+    </div>
   );
 }
 
@@ -497,7 +459,7 @@ export default function LoginPage() {
             Sign in to your gateway
           </h1>
           <p className="text-sm mt-1.5" style={{ color: "var(--pc-muted)" }}>
-            Authenticate with your API key or an identity provider
+            Continue with Google or sign in with your email
           </p>
         </div>
 

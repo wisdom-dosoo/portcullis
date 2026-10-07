@@ -20,11 +20,20 @@ _AUTH_COOKIE = "portcullis_auth"
 _CSRF_COOKIE = "portcullis_csrf"
 _CSRF_HEADER = "x-csrf-token"
 
+# Session-establishing endpoints mint the session rather than acting on
+# ambient auth, so gating them on a (possibly stale) session cookie locks
+# users out: a leftover `portcullis_auth` cookie without a CSRF pair turns
+# every /auth/login attempt into a 403 with no CORS headers, which browsers
+# then misreport as "blocked by CORS policy". Login-CSRF is accepted here.
+_SESSION_ESTABLISHING = frozenset({"/auth/login", "/auth/register"})
+
 
 def _needs_check(request: Request) -> bool:
     if request.method not in _UNSAFE_METHODS:
         return False
     path = request.url.path
+    if path in _SESSION_ESTABLISHING:
+        return False
     if not (path.startswith("/v1/") or path.startswith("/auth/") or path.startswith("/mcp/")):
         return False
     if path in {"/healthz", "/metrics", "/openapi.json"}:

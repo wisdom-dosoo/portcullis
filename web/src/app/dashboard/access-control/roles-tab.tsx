@@ -28,6 +28,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, EMPTY_STATES } from "@/components/empty-state";
+import { useIsPlatformAdmin } from "@/lib/use-platform-admin";
 
 /* ── Spec-defined role archetypes ─────────────────────────────────── */
 
@@ -219,13 +220,24 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
+/* ── Super-admin visibility ────────────────────────────────────────── */
+
+// The "Platform Super Admin" archetype is secret: org admins never see it.
+// Only a backend-confirmed platform admin (the system developer/operator)
+// gets the full archetype set.
+function visibleArchetypes(isPlatformAdmin: boolean): RoleArchetype[] {
+  if (isPlatformAdmin) return ROLE_ARCHETYPES;
+  return ROLE_ARCHETYPES.filter((a) => a.key !== "super-admin");
+}
+
 /* ── Seed roles dialog ───────────────────────────────────────────── */
 
 function SeedRolesButton({ existingNames, onSeeded }: { existingNames: Set<string>; onSeeded: () => void }) {
   const createRole = useCreateRoleV1RolesPost();
   const [seeding, setSeeding] = useState(false);
+  const archetypes = visibleArchetypes(useIsPlatformAdmin());
 
-  const missing = ROLE_ARCHETYPES.filter(
+  const missing = archetypes.filter(
     (r) => !existingNames.has(r.label) && !existingNames.has(r.key)
   );
 
@@ -276,6 +288,7 @@ function RolesPanel({
   onRefresh: () => void;
 }) {
   const existingNames = new Set(roles.map((r) => r.name));
+  const archetypes = visibleArchetypes(useIsPlatformAdmin());
 
   return (
     <div className="space-y-6">
@@ -289,7 +302,7 @@ function RolesPanel({
             Standard role archetypes
           </p>
           <p className="text-xs leading-relaxed" style={{ color: "var(--pc-muted)" }}>
-            Portcullis defines 6 built-in role types. Seed them into your gateway to start assigning access, or create custom roles below.
+            Portcullis defines {archetypes.length} built-in role types. Seed them into your gateway to start assigning access, or create custom roles below.
           </p>
         </div>
         <div className="flex-shrink-0">
@@ -299,7 +312,7 @@ function RolesPanel({
 
       {/* Archetype reference cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {ROLE_ARCHETYPES.map((archetype) => {
+        {archetypes.map((archetype) => {
           const Icon = archetype.icon;
           const inGateway = existingNames.has(archetype.label) || existingNames.has(archetype.key);
           return (
@@ -570,6 +583,7 @@ function BindingsPanel({ roles, isLoading }: { roles: RoleView[]; isLoading: boo
 /* ── Permission matrix panel ─────────────────────────────────────── */
 
 function MatrixPanel() {
+  const archetypes = visibleArchetypes(useIsPlatformAdmin());
   return (
     <div
       className="rounded-2xl border overflow-hidden"
@@ -597,7 +611,7 @@ function MatrixPanel() {
             </tr>
           </thead>
           <tbody>
-            {ROLE_ARCHETYPES.map((archetype) => {
+            {archetypes.map((archetype) => {
               const Icon = archetype.icon;
               return (
                 <tr

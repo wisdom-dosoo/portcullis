@@ -30,7 +30,9 @@ import {
   type OrgMemberRole,
   type TeamView,
 } from "@/lib/admin-rbac";
-import { orgGetLicenseV1LicenseGet, type LicenseUsageView } from "@/api/generated";
+import { orgGetLicenseV1LicenseGet, useMeAuthMeGet, type LicenseUsageView } from "@/api/generated";
+import { isAuthenticated } from "@/lib/auth";
+import { useIsPlatformAdmin } from "@/lib/use-platform-admin";
 import {
   Dialog,
   DialogContent,
@@ -444,6 +446,19 @@ export default function MembersTab() {
   const teams = membersQuery.data?.teams ?? [];
   const loading = membersQuery.isLoading;
 
+  // Only owners/admins (and the platform admin) manage members. Everyone
+  // else gets a read-only view — the backend enforces the same rule.
+  const meQuery = useMeAuthMeGet({
+    query: {
+      enabled: isAuthenticated() && typeof window !== "undefined",
+      retry: false,
+    },
+  });
+  const myRole =
+    meQuery.data?.status === 200 ? meQuery.data.data.org_role ?? null : null;
+  const canManage =
+    useIsPlatformAdmin() || myRole === "org_owner" || myRole === "org_admin";
+
   const licenseQuery = useQuery({
     queryKey: ["/v1/license", "license"],
     queryFn: () => orgGetLicenseV1LicenseGet(),
@@ -510,14 +525,16 @@ export default function MembersTab() {
         >
           <RefreshCw className="w-4 h-4" />
         </button>
-        <button
-          onClick={() => setInviteOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
-          style={{ background: "var(--pc-primary)", color: "#0C1116" }}
-        >
-          <Plus className="w-4 h-4" strokeWidth={2.5} />
-          Add Member
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setInviteOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
+            style={{ background: "var(--pc-primary)", color: "#0C1116" }}
+          >
+            <Plus className="w-4 h-4" strokeWidth={2.5} />
+            Add Member
+          </button>
+        )}
       </div>
 
       {/* ── stats ── */}
@@ -611,16 +628,20 @@ export default function MembersTab() {
               No members yet
             </p>
             <p className="text-xs mt-1 mb-4" style={{ color: "var(--pc-muted)" }}>
-              Add a dashboard user with an administrative role to get started
+              {canManage
+                ? "Add a dashboard user with an administrative role to get started"
+                : "Members are managed by your organization owner"}
             </p>
-            <button
-              onClick={() => setInviteOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
-              style={{ background: "var(--pc-primary)", color: "#0C1116" }}
-            >
-              <Plus className="w-4 h-4" strokeWidth={2.5} />
-              Add Member
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setInviteOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
+                style={{ background: "var(--pc-primary)", color: "#0C1116" }}
+              >
+                <Plus className="w-4 h-4" strokeWidth={2.5} />
+                Add Member
+              </button>
+            )}
           </div>
         ) : filteredMembers.length === 0 ? (
           <div className="p-10 text-center text-sm" style={{ color: "var(--pc-muted)" }}>
@@ -631,7 +652,10 @@ export default function MembersTab() {
             <table className="w-full text-sm">
               <thead style={{ background: "var(--pc-elevated)", borderBottom: "1px solid var(--pc-border)" }}>
                 <tr>
-                  {["Subject", "Role", "Team", "Added", "Actions"].map((h, i) => (
+                  {(canManage
+                    ? ["Subject", "Role", "Team", "Added", "Actions"]
+                    : ["Subject", "Role", "Team", "Added"]
+                  ).map((h, i) => (
                     <th
                       key={h}
                       className={`px-5 py-3 text-xs font-semibold uppercase tracking-wider ${
@@ -699,26 +723,28 @@ export default function MembersTab() {
                         <RelativeTime iso={member.created_at} />
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setEditTarget(member)}
-                          className="p-1.5 rounded-lg transition-colors hover:opacity-80"
-                          style={{ color: "var(--pc-muted)", background: "var(--pc-elevated)" }}
-                          title="Edit role / team"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(member)}
-                          className="p-1.5 rounded-lg transition-colors hover:opacity-80"
-                          style={{ color: "var(--pc-critical)", background: "rgba(240,93,94,0.1)" }}
-                          title="Remove member"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+                    {canManage && (
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setEditTarget(member)}
+                            className="p-1.5 rounded-lg transition-colors hover:opacity-80"
+                            style={{ color: "var(--pc-muted)", background: "var(--pc-elevated)" }}
+                            title="Edit role / team"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget(member)}
+                            className="p-1.5 rounded-lg transition-colors hover:opacity-80"
+                            style={{ color: "var(--pc-critical)", background: "rgba(240,93,94,0.1)" }}
+                            title="Remove member"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

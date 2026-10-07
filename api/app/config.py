@@ -102,19 +102,21 @@ class Settings(BaseSettings):
     jwt_audience: str = "portcullis"
     jwt_jwks_cache_ttl_seconds: PositiveInt = 300
 
-    # OIDC SSO (authorization-code login). All optional; SSO is disabled when
-    # sso_oidc_client_id is unset.  The client secret lives only in process
-    # config — never in the database — so self-hosted deployments point these
-    # at their own IdP and the Cloud control plane supplies them per-tenant.
+    # OIDC SSO (authorization-code login) — wired for Google by default.
+    # All optional; SSO is disabled when sso_oidc_client_id is unset. The
+    # client secret lives only in process config — never in the database.
+    # Point SSO_OIDC_CLIENT_ID / SSO_OIDC_CLIENT_SECRET at a Google Cloud
+    # OAuth client (authorized redirect:
+    # {SSO_PUBLIC_BASE_URL}/auth/sso/google/callback) and set SSO_ENABLED=true.
     sso_enabled: bool = False
-    sso_oidc_name: str = "SSO"
-    sso_oidc_slug: str = "sso"
-    sso_oidc_issuer: str | None = None
+    sso_oidc_name: str = "Google"
+    sso_oidc_slug: str = "google"
+    sso_oidc_issuer: str | None = "https://accounts.google.com"
     sso_oidc_client_id: str | None = None
     sso_oidc_client_secret: str | None = None
-    sso_oidc_authorize_url: str | None = None
-    sso_oidc_token_url: str | None = None
-    sso_oidc_userinfo_url: str | None = None
+    sso_oidc_authorize_url: str | None = "https://accounts.google.com/o/oauth2/v2/auth"
+    sso_oidc_token_url: str | None = "https://oauth2.googleapis.com/token"
+    sso_oidc_userinfo_url: str | None = "https://openidconnect.googleapis.com/v1/userinfo"
     sso_oidc_scope: str = "openid email profile"
     # Public base URL of this Portcullis instance — used to build the SSO
     # callback URL the IdP redirects back to.

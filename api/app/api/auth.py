@@ -29,6 +29,7 @@ from app.config import Settings
 from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import (
     OrgMember,
+    OrgMemberRole,
     OrgRole,
     SubjectType,
     UserApprovalStatus,
@@ -169,6 +170,17 @@ async def register(
     # For org creation, set up default roles and track super admin org ownership
     if body.flow == "create":
         await create_default_roles(session, DEFAULT_TENANT_ID)
+
+        # The account creator owns the system: an explicit org_owner member
+        # row so ownership is real in the member hierarchy (member invites,
+        # approvals, and role changes all resolve through it).
+        await OrgMemberRepository(session).create(
+            DEFAULT_TENANT_ID,
+            OrgMemberCreate(
+                user_subject=str(user.id),
+                admin_role=OrgMemberRole.ORG_OWNER,
+            ),
+        )
 
         # If the user is a super admin, increment their org count and link them to the new org
         if user.is_platform_admin:
