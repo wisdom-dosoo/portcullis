@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 
 from app.auth.subject import Subject
 from app.config import Settings
+from app.constants import DEFAULT_TENANT_ID
 from app.models.orm import SubjectType
 
 logger = structlog.get_logger(__name__)
@@ -199,6 +200,25 @@ async def verify_jwt(
         ValueError: On any validation failure — bad format, expired token,
             wrong audience/issuer, missing sub, or JWKS fetch error.
     """
+    subject, _claims = await verify_jwt_with_claims(raw_token, settings, jwks_cache)
+    return subject
+
+
+async def verify_jwt_with_claims(
+    raw_token: str, settings: Settings, jwks_cache: JwksCache | None = None
+) -> tuple[Subject, dict]:
+    """Verify a JWT like :func:`verify_jwt` and also return its claims.
+
+    Used by identity-provisioning endpoints (e.g. Clerk sync) that need
+    ``email``/``name`` in addition to ``sub``. Validation is identical —
+    this is the single implementation; :func:`verify_jwt` delegates to it.
+
+    Returns:
+        ``(subject, claims)`` where claims is a plain dict of the JWT payload.
+
+    Raises:
+        ValueError: Same conditions as :func:`verify_jwt`.
+    """
     if settings.jwt_jwks_url is None:
         raise ValueError("JWT auth is not configured")
 
@@ -268,11 +288,14 @@ async def verify_jwt(
 
             tenant_id = _DEFAULT
 
-        return Subject(
-            subject_id=sub,
-            subject_type=SubjectType.OAUTH_SUBJECT,
-            tenant_id=tenant_id,
-            scopes=scopes,
+        return (
+            Subject(
+                subject_id=sub,
+                subject_type=SubjectType.OAUTH_SUBJECT,
+                tenant_id=tenant_id,
+                scopes=scopes,
+            ),
+            dict(payload),
         )
     except ValueError as exc:
         # Normalize all ValueErrors to a single safe message, except for errors

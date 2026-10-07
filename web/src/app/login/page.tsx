@@ -1,12 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff, Loader2, AlertTriangle, CheckCircle2, Wifi, WifiOff, Mail, Lock } from "lucide-react";
+import { SignIn } from "@clerk/nextjs";
+import { Eye, EyeOff, Loader2, Wifi, WifiOff, AlertTriangle, CheckCircle2, Mail, Lock } from "lucide-react";
 import { markCookieSession } from "@/lib/auth";
 import { axiosClient } from "@/lib/axios-instance";
-import { Suspense } from "react";
+
+const CLERK_KEY = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+const CLERK_APPEARANCE = {
+  variables: {
+    colorPrimary: "#2DD4A7",
+    colorBackground: "#0C1116",
+    colorInputBackground: "#111A22",
+    colorText: "#F1F5F9",
+    colorTextSecondary: "#8B98A7",
+    colorInputText: "#F1F5F9",
+    borderRadius: "0.75rem",
+  },
+} as const;
 
 /* ── Portcullis grille SVG ───────────────────────────────────────── */
 
@@ -190,7 +204,7 @@ function ErrorBanner({ error }: { error: AuthError }) {
   );
 }
 
-/* ── Continue with Google button ─────────────────────────────────── */
+/* ── Continue with Google (backend OIDC, no Clerk key needed) ───── */
 
 const GOOGLE_SSO_SLUG = process.env.NEXT_PUBLIC_SSO_SLUG ?? "google";
 
@@ -235,9 +249,9 @@ function GoogleButton() {
   );
 }
 
-/* ── Main form (needs Suspense for useSearchParams) ──────────────── */
+/* ── Legacy email sign-in (no Clerk key configured) ──────────────── */
 
-function SignInForm() {
+function LegacySignInForm() {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -249,30 +263,17 @@ function SignInForm() {
   const [authError, setAuthError] = useState<AuthError>(
     () => (searchParams.get("reason") === "expired" ? "session_expired" : null)
   );
-  const [serviceOk, setServiceOk] = useState<boolean | null>(null);
   const [attempts, setAttempts] = useState(0);
-
-  // Passive health check
-  useEffect(() => {
-    axiosClient.get("/healthz")
-      .then(() => setServiceOk(true))
-      .catch(() => setServiceOk(false));
-  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // P3: client-side attempt cap is UX only (trivially bypassed via reload —
-    // real brute-force protection is server pre-auth rate limiting). Persist
-    // across reloads so the hint actually works.
     const stored = Number(sessionStorage.getItem("pc_login_attempts") ?? attempts);
     if (stored >= 5) { setAuthError("too_many_attempts"); return; }
     setAuthError(null);
     setLoading(true);
     try {
-      const trimmedEmail = email.trim();
-
       const response = await axiosClient.post("/auth/login", {
-        email: trimmedEmail,
+        email: email.trim(),
         password,
       });
       const token = response.data?.access_token ?? response.data?.token;
@@ -411,6 +412,54 @@ function SignInForm() {
           ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>
           : "Sign in to Portcullis"}
       </button>
+    </form>
+    </div>
+  );
+}
+
+/* ── Sign-in block (needs Suspense for useSearchParams) ──────────── */
+
+function SignInBlock() {
+  const searchParams = useSearchParams();
+  const [serviceOk, setServiceOk] = useState<boolean | null>(null);
+
+  // Passive health check
+  useEffect(() => {
+    axiosClient.get("/healthz")
+      .then(() => setServiceOk(true))
+      .catch(() => setServiceOk(false));
+  }, []);
+
+  const expired = searchParams.get("reason") === "expired";
+
+  return (
+    <div className="space-y-3.5">
+      {expired && (
+        <div
+          className="flex items-start gap-3 rounded-xl px-4 py-3 border"
+          style={{ background: "rgba(240,93,94,0.08)", borderColor: "rgba(240,93,94,0.3)" }}
+        >
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "#F05D5E" }} strokeWidth={2} />
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "#F05D5E" }}>Session expired</p>
+            <p className="text-xs mt-0.5 leading-relaxed" style={{ color: "var(--pc-muted)" }}>
+              Your session has timed out. Please sign in again.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {CLERK_KEY ? (
+        <div className="flex justify-center">
+          <SignIn
+            forceRedirectUrl="/dashboard"
+            signUpUrl="/register"
+            appearance={CLERK_APPEARANCE}
+          />
+        </div>
+      ) : (
+        <LegacySignInForm />
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-1">
@@ -420,7 +469,6 @@ function SignInForm() {
           <Link href="/privacy" className="hover:underline">Privacy</Link>
         </div>
       </div>
-    </form>
     </div>
   );
 }
@@ -459,12 +507,14 @@ export default function LoginPage() {
             Sign in to your gateway
           </h1>
           <p className="text-sm mt-1.5" style={{ color: "var(--pc-muted)" }}>
-            Continue with Google or sign in with your email
+            {CLERK_KEY
+              ? "Continue with Google or your email to access Portcullis"
+              : "Sign in with your email to access Portcullis"}
           </p>
         </div>
 
         <Suspense fallback={null}>
-          <SignInForm />
+          <SignInBlock />
         </Suspense>
 
         <p className="mt-6 text-center text-xs" style={{ color: "var(--pc-muted)" }}>

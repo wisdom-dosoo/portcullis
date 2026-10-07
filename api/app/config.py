@@ -96,11 +96,21 @@ class Settings(BaseSettings):
     # Example: "https://claude.ai,https://cursor.sh"
     mcp_allowed_origins: str = ""
 
-    # OAuth 2.1 / JWKS — all optional; JWT auth is disabled when jwks_url is unset
+    # OAuth 2.1 / JWKS — all optional; JWT auth is disabled when jwks_url is unset.
+    # Clerk wiring: JWT_JWKS_URL=https://<frontend-api>/.well-known/jwks.json,
+    # JWT_ISSUER=https://<frontend-api>. Clerk's default session tokens carry
+    # no `aud` claim — leave JWT_AUDIENCE empty (skips the aud check; iss +
+    # exp + signature are still enforced), or set it and use a Clerk JWT
+    # template that includes the audience.
     jwt_jwks_url: str | None = None
     jwt_issuer: str | None = None
     jwt_audience: str = "portcullis"
     jwt_jwks_cache_ttl_seconds: PositiveInt = 300
+    # Clerk Backend API (https://api.clerk.com) — used by /auth/clerk/sync to
+    # resolve the verified primary email for a Clerk user id. Optional: when
+    # unset, sync falls back to the `email` claim in the token (present only
+    # with a custom Clerk JWT template).
+    clerk_secret_key: str | None = None
 
     # OIDC SSO (authorization-code login) — wired for Google by default.
     # All optional; SSO is disabled when sso_oidc_client_id is unset. The

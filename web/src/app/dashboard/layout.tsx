@@ -1,6 +1,7 @@
 "use client";
 
 import NavShell, { type NavSection } from "@/components/nav-shell";
+import { ClerkSyncGate } from "@/components/clerk-sync-gate";
 import {
   LayoutDashboard,
   Server,
@@ -64,7 +65,7 @@ const SECTIONS: NavSection[] = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <NavShell context="org-admin" sections={SECTIONS}>
-      {children}
+      <ClerkSyncGate>{children}</ClerkSyncGate>
     </NavShell>
   );
 }

@@ -229,6 +229,10 @@ def create_app() -> FastAPI:
 
     application.include_router(auth_router)
 
+    from app.api.clerk import router as clerk_router
+
+    application.include_router(clerk_router)
+
     from app.api.sso import router as sso_router
 
     application.include_router(sso_router)

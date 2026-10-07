@@ -3550,6 +3550,50 @@
         ]
       }
     },
+    "/auth/clerk/sync": {
+      "post": {
+        "description": "Validate a Clerk session JWT and return a Portcullis session.",
+        "operationId": "clerk_sync_auth_clerk_sync_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clerk Sync",
+        "tags": [
+          "clerk"
+        ]
+      }
+    },
     "/auth/invites": {
       "get": {
         "description": "List invitations for the tenant (P3: paginated, admin only).",
@@ -6653,7 +6697,7 @@
     },
     "/v1/roles": {
       "get": {
-        "description": "List roles for the current tenant (P1: paginated).",
+        "description": "List roles for the current tenant (P1: paginated).\n\nThe platform ``super_admin`` role is hidden from non-platform callers \u2014\norg admins and members never see it. Platform admins (bootstrap\n``admin``-scope keys or ``is_platform_admin`` users) see the full set.",
         "operationId": "list_roles_v1_roles_get",
         "parameters": [
           {

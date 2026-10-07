@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
+import { useClerk } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 import { isAuthenticated, clearToken } from "@/lib/auth";
+
+const CLERK_KEY = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 import { useIsPlatformAdmin } from "@/lib/use-platform-admin";
 import { useListRolesV1RolesGet, type RoleView } from "@/api/generated";
 import { cn } from "@/lib/utils";
@@ -192,6 +195,51 @@ function ContextSwitcher({ current, roles }: { current: NavContext; roles: RoleV
   );
 }
 
+/* ── Sign-out (Clerk-aware) ──────────────────────────────────────── */
+
+// Rendered only when a Clerk key is configured (guaranteed a provider
+// above). Signs out of Clerk AND clears the Portcullis session — clearing
+// only Portcullis would bounce the user straight back in via the sync gate.
+function ClerkSignOutButton({ collapsed }: { collapsed: boolean }) {
+  const router = useRouter();
+  const { signOut } = useClerk();
+
+  async function handleSignOut() {
+    try {
+      await signOut();
+    } finally {
+      clearToken();
+      router.push("/login");
+    }
+  }
+
+  return (
+    <button
+      onClick={() => void handleSignOut()}
+      className={cn("w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-white/5", collapsed && "justify-center")}
+      style={{ color: "var(--pc-muted)" }}
+      title={collapsed ? "Sign out" : undefined}
+    >
+      <LogOut className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
+      {!collapsed && <span>Sign out</span>}
+    </button>
+  );
+}
+
+function LegacySignOutButton({ collapsed, onSignOut }: { collapsed: boolean; onSignOut: () => void }) {
+  return (
+    <button
+      onClick={onSignOut}
+      className={cn("w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-white/5", collapsed && "justify-center")}
+      style={{ color: "var(--pc-muted)" }}
+      title={collapsed ? "Sign out" : undefined}
+    >
+      <LogOut className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
+      {!collapsed && <span>Sign out</span>}
+    </button>
+  );
+}
+
 /* ── Main NavShell ───────────────────────────────────────────────── */
 
 export default function NavShell({ context, sections, children }: NavShellProps) {
@@ -292,15 +340,11 @@ export default function NavShell({ context, sections, children }: NavShellProps)
 
         {/* Footer */}
         <div className="p-2 border-t space-y-1" style={{ borderColor: "var(--pc-border)" }}>
-          <button
-            onClick={signOut}
-            className={cn("w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-white/5", collapsed && "justify-center")}
-            style={{ color: "var(--pc-muted)" }}
-            title={collapsed ? "Sign out" : undefined}
-          >
-            <LogOut className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
-            {!collapsed && <span>Sign out</span>}
-          </button>
+          {CLERK_KEY ? (
+            <ClerkSignOutButton collapsed={collapsed} />
+          ) : (
+            <LegacySignOutButton collapsed={collapsed} onSignOut={signOut} />
+          )}
           <button
             onClick={() => setCollapsed((v) => !v)}
             className={cn("w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-white/5", collapsed && "justify-center")}

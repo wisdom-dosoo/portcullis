@@ -1,6 +1,7 @@
 "use client";
 
 import NavShell, { type NavSection } from "@/components/nav-shell";
+import { ClerkSyncGate } from "@/components/clerk-sync-gate";
 import {
   Home,
   Server,
@@ -45,7 +46,7 @@ const SECTIONS: NavSection[] = [
 export default function DeveloperLayout({ children }: { children: React.ReactNode }) {
   return (
     <NavShell context="developer" sections={SECTIONS}>
-      {children}
+      <ClerkSyncGate>{children}</ClerkSyncGate>
     </NavShell>
   );
 }

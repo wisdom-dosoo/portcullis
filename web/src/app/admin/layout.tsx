@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import NavShell, { type NavSection } from "@/components/nav-shell";
+import { ClerkSyncGate } from "@/components/clerk-sync-gate";
 import { PortcullisLoader } from "@/components/loading-state";
 import { isAuthenticated, verifySession } from "@/lib/auth";
 import { usePlatformAdminMeAdminPlatformMeGet } from "@/api/generated";
@@ -114,7 +115,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <NavShell context="platform-admin" sections={ALL_SECTIONS}>
-      {children}
+      <ClerkSyncGate>{children}</ClerkSyncGate>
     </NavShell>
   );
 }

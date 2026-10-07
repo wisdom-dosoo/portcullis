@@ -1,10 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const TOKEN_COOKIE = "portcullis_token";
 const PROTECTED_PREFIXES = ["/admin", "/dashboard", "/developer"];
 const PUBLIC_EXACT = new Set(["/login", "/register", "/privacy", "/terms", "/sso-callback"]);
 
-export async function middleware(request: NextRequest) {
+const CLERK_KEY = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const isClerkProtectedRoute = createRouteMatcher([
+  "/admin(.*)",
+  "/dashboard(.*)",
+  "/developer(.*)",
+]);
+
+async function portcullisHandler(
+  request: NextRequest,
+  opts?: { skipBounce?: boolean },
+) {
   const { pathname } = request.nextUrl;
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const isPublic = PUBLIC_EXACT.has(pathname) || pathname === "/";
@@ -15,21 +26,41 @@ export async function middleware(request: NextRequest) {
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
-  // Minimal CSP for dashboard — allow self + inline styles (Next.js/Tailwind) + connect to API
+  // Minimal CSP for dashboard — allow self + inline styles (Next.js/Tailwind) + connect to API.
+  // When Clerk is configured, its browser bundle, API calls, avatars, and
+  // the Cloudflare challenge iframe must be allowed too — otherwise the
+  // <SignIn/>/<SignUp/> cards render blank and the console fills with
+  // "Refused to load/script/connect" CSP errors.
   const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
   try {
     const apiHost = new URL(apiOrigin).origin;
-    response.headers.set(
-      "Content-Security-Policy",
-      [
-        "default-src 'self'",
-        `connect-src 'self' ${apiHost}`,
-        "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob:",
-        "font-src 'self' data:",
-      ].join("; ")
-    );
+    const connectSrc = [`'self'`, apiHost];
+    const scriptSrc = [`'self'`, `'unsafe-eval'`, `'unsafe-inline'`];
+    const imgSrc = [`'self'`, `data:`, `blob:`];
+    const frameSrc: string[] = [];
+    const workerSrc: string[] = [];
+    if (CLERK_KEY) {
+      connectSrc.push("https://*.clerk.accounts.dev", "https://*.clerk.com");
+      scriptSrc.push(
+        "https://*.clerk.accounts.dev",
+        "https://*.clerk.com",
+        "https://challenges.cloudflare.com",
+      );
+      imgSrc.push("https://*.clerk.com", "https://img.clerk.com");
+      frameSrc.push("https://challenges.cloudflare.com");
+      workerSrc.push("'self'", "blob:");
+    }
+    const directives = [
+      "default-src 'self'",
+      `connect-src ${connectSrc.join(" ")}`,
+      `script-src ${scriptSrc.join(" ")}`,
+      "style-src 'self' 'unsafe-inline'",
+      `img-src ${imgSrc.join(" ")}`,
+      "font-src 'self' data:",
+    ];
+    if (frameSrc.length > 0) directives.push(`frame-src ${frameSrc.join(" ")}`);
+    if (workerSrc.length > 0) directives.push(`worker-src ${workerSrc.join(" ")}`);
+    response.headers.set("Content-Security-Policy", directives.join("; "));
   } catch {
     // ignore malformed API_URL
   }
@@ -46,6 +77,10 @@ export async function middleware(request: NextRequest) {
   const guard = request.cookies.get(TOKEN_COOKIE)?.value ?? null;
   const sessionCookie = request.cookies.get("portcullis_auth")?.value ?? null;
   if (!guard && !sessionCookie) {
+    // With Clerk configured, a signed-in Clerk user legitimately has no
+    // Portcullis session yet — let them through so <ClerkSyncGate/> can mint
+    // one via /auth/clerk/sync instead of bouncing to /login in a loop.
+    if (opts?.skipBounce) return response;
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
@@ -82,6 +117,21 @@ export async function middleware(request: NextRequest) {
   // in app/admin/layout.tsx via GET /admin/platform/me.
   return response;
 }
+
+// With Clerk configured, protected routes additionally require a Clerk
+// session (redirects to NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login). Without a key
+// the legacy Portcullis-only behavior is preserved byte-for-byte.
+// NOTE: clerkMiddleware() is constructed lazily inside the ternary —
+// constructing it without a key would throw at module load.
+export default CLERK_KEY
+  ? clerkMiddleware(async (auth, request: NextRequest) => {
+      const { isAuthenticated: clerkAuthed } = await auth();
+      if (isClerkProtectedRoute(request) && !clerkAuthed) {
+        await auth.protect();
+      }
+      return portcullisHandler(request, { skipBounce: clerkAuthed });
+    })
+  : portcullisHandler;
 
 export const config = {
   matcher: ["/admin/:path*", "/dashboard/:path*", "/developer/:path*", "/login", "/register"],

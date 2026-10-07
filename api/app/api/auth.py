@@ -383,6 +383,10 @@ async def create_invite(
         email=body.email,
         expires_in_days=body.expires_in_days,
         role=body.role,
+        # Pass settings so the invite email actually sends via the
+        # configured provider (e.g. Resend). Failures only log.
+        settings=settings,
+        base_url=settings.sso_public_base_url,
     )
     await session.commit()
     view = InviteView.model_validate(invitation)
